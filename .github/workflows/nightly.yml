@@ -1,0 +1,20 @@
+name: nightly
+
+on:
+  schedule:
+    - cron: "17 3 * * *"
+  workflow_dispatch:
+
+jobs:
+  crash:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: crash injection, 5000 iterations
+        env:
+          KEYSTONE_CRASH_ITERS: "5000"
+        run: go test -race -run TestCrashRecovery -v -timeout 100m ./storage
