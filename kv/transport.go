@@ -12,17 +12,17 @@ import (
 	"github.com/arifisme/keystone/raft"
 )
 
-// Transport carries Raft messages over one gRPC stream per peer. Send
-// never blocks: each peer has a bounded queue and a message that does not
-// fit is dropped, which Raft's retries tolerate. Incoming streams feed one
-// channel that the node drains.
+// Transport carries Raft messages for every group on this node over one
+// gRPC stream per peer. Send never blocks: each peer has a bounded queue
+// and a message that does not fit is dropped, which Raft's retries
+// tolerate. Incoming messages are demultiplexed by group.
 type Transport struct {
 	pb.UnimplementedRaftServer
 	self  raft.NodeID
 	peers map[raft.NodeID]string
-	recv  chan raft.Message
 
 	mu     sync.Mutex
+	groups map[uint64]chan raft.Message
 	queues map[raft.NodeID]chan *pb.RaftMessage
 	ctx    context.Context
 	cancel context.CancelFunc
@@ -40,7 +40,7 @@ func NewTransport(self raft.NodeID, peers map[raft.NodeID]string) *Transport {
 	t := &Transport{
 		self:   self,
 		peers:  peers,
-		recv:   make(chan raft.Message, 1024),
+		groups: make(map[uint64]chan raft.Message),
 		queues: make(map[raft.NodeID]chan *pb.RaftMessage),
 		ctx:    ctx,
 		cancel: cancel,
@@ -57,19 +57,39 @@ func NewTransport(self raft.NodeID, peers map[raft.NodeID]string) *Transport {
 	return t
 }
 
-func (t *Transport) Send(to raft.NodeID, m raft.Message) {
-	q, ok := t.queues[to]
+// Group returns the raft.Transport for one group hosted on this node.
+func (t *Transport) Group(id uint64) raft.Transport {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	ch, ok := t.groups[id]
+	if !ok {
+		ch = make(chan raft.Message, 1024)
+		t.groups[id] = ch
+	}
+	return &groupTransport{t: t, group: id, recv: ch}
+}
+
+type groupTransport struct {
+	t     *Transport
+	group uint64
+	recv  chan raft.Message
+}
+
+func (g *groupTransport) Send(to raft.NodeID, m raft.Message) {
+	q, ok := g.t.queues[to]
 	if !ok {
 		return
 	}
+	pm := toProto(m)
+	pm.Group = g.group
 	select {
-	case q <- toProto(m):
+	case q <- pm:
 	default:
 	}
 }
 
-func (t *Transport) Recv() <-chan raft.Message {
-	return t.recv
+func (g *groupTransport) Recv() <-chan raft.Message {
+	return g.recv
 }
 
 // deliver owns the connection to one peer, reopening the stream after
@@ -122,8 +142,14 @@ func (t *Transport) Stream(st pb.Raft_StreamServer) error {
 		if err != nil {
 			return st.SendAndClose(&pb.StreamAck{})
 		}
+		t.mu.Lock()
+		ch, ok := t.groups[m.Group]
+		t.mu.Unlock()
+		if !ok {
+			continue
+		}
 		select {
-		case t.recv <- fromProto(m):
+		case ch <- fromProto(m):
 		case <-t.ctx.Done():
 			return nil
 		}

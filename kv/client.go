@@ -21,6 +21,7 @@ import (
 type Client struct {
 	endpoints []string
 	attempt   time.Duration
+	group     uint64
 
 	mu       sync.Mutex
 	conns    map[string]*grpc.ClientConn
@@ -33,6 +34,9 @@ type Client struct {
 type ClientOptions struct {
 	// AttemptTimeout bounds a single RPC before the client tries elsewhere.
 	AttemptTimeout time.Duration
+	// Group pins every request to one Raft group. Zero lets the node
+	// route by key.
+	Group uint64
 }
 
 var ErrNoEndpoints = errors.New("kv: no endpoints")
@@ -45,10 +49,10 @@ func Dial(ctx context.Context, endpoints []string, opts ClientOptions) (*Client,
 	if opts.AttemptTimeout <= 0 {
 		opts.AttemptTimeout = 2 * time.Second
 	}
-	c := &Client{endpoints: endpoints, attempt: opts.AttemptTimeout, conns: map[string]*grpc.ClientConn{}}
+	c := &Client{endpoints: endpoints, attempt: opts.AttemptTimeout, group: opts.Group, conns: map[string]*grpc.ClientConn{}}
 	var id uint64
-	err := c.do(ctx, func(ctx context.Context, cli pb.KVClient) error {
-		res, err := cli.RegisterClient(ctx, &pb.RegisterRequest{})
+	err := c.Do(ctx, func(ctx context.Context, cli pb.KVClient) error {
+		res, err := cli.RegisterClient(ctx, &pb.RegisterRequest{Group: c.group})
 		if err != nil {
 			return err
 		}
@@ -81,16 +85,16 @@ func (c *Client) session() *pb.Session {
 
 func (c *Client) Put(ctx context.Context, key, value []byte) error {
 	sess := c.session()
-	return c.do(ctx, func(ctx context.Context, cli pb.KVClient) error {
-		_, err := cli.Put(ctx, &pb.PutRequest{Session: sess, Key: key, Value: value})
+	return c.Do(ctx, func(ctx context.Context, cli pb.KVClient) error {
+		_, err := cli.Put(ctx, &pb.PutRequest{Session: sess, Key: key, Value: value, Group: c.group})
 		return err
 	})
 }
 
 func (c *Client) Delete(ctx context.Context, key []byte) error {
 	sess := c.session()
-	return c.do(ctx, func(ctx context.Context, cli pb.KVClient) error {
-		_, err := cli.Delete(ctx, &pb.DeleteRequest{Session: sess, Key: key})
+	return c.Do(ctx, func(ctx context.Context, cli pb.KVClient) error {
+		_, err := cli.Delete(ctx, &pb.DeleteRequest{Session: sess, Key: key, Group: c.group})
 		return err
 	})
 }
@@ -100,8 +104,8 @@ func (c *Client) Delete(ctx context.Context, key []byte) error {
 // happened and the value found.
 func (c *Client) Cas(ctx context.Context, key, expected, value []byte) (swapped bool, current []byte, found bool, err error) {
 	sess := c.session()
-	err = c.do(ctx, func(ctx context.Context, cli pb.KVClient) error {
-		res, err := cli.Cas(ctx, &pb.CasRequest{Session: sess, Key: key, Expected: expected, Value: value})
+	err = c.Do(ctx, func(ctx context.Context, cli pb.KVClient) error {
+		res, err := cli.Cas(ctx, &pb.CasRequest{Session: sess, Key: key, Expected: expected, Value: value, Group: c.group})
 		if err != nil {
 			return err
 		}
@@ -113,8 +117,8 @@ func (c *Client) Cas(ctx context.Context, key, expected, value []byte) (swapped 
 
 func (c *Client) Get(ctx context.Context, key []byte, mode pb.ReadMode) (value []byte, found bool, err error) {
 	sess := c.session()
-	err = c.do(ctx, func(ctx context.Context, cli pb.KVClient) error {
-		res, err := cli.Get(ctx, &pb.GetRequest{Session: sess, Key: key, Mode: mode})
+	err = c.Do(ctx, func(ctx context.Context, cli pb.KVClient) error {
+		res, err := cli.Get(ctx, &pb.GetRequest{Session: sess, Key: key, Mode: mode, Group: c.group})
 		if err != nil {
 			return err
 		}
@@ -126,8 +130,8 @@ func (c *Client) Get(ctx context.Context, key []byte, mode pb.ReadMode) (value [
 
 func (c *Client) Scan(ctx context.Context, start, end []byte, limit int, mode pb.ReadMode) (kvs []*pb.KeyValue, err error) {
 	sess := c.session()
-	err = c.do(ctx, func(ctx context.Context, cli pb.KVClient) error {
-		res, err := cli.Scan(ctx, &pb.ScanRequest{Session: sess, Start: start, End: end, Limit: uint32(limit), Mode: mode})
+	err = c.Do(ctx, func(ctx context.Context, cli pb.KVClient) error {
+		res, err := cli.Scan(ctx, &pb.ScanRequest{Session: sess, Start: start, End: end, Limit: uint32(limit), Mode: mode, Group: c.group})
 		if err != nil {
 			return err
 		}
@@ -137,9 +141,10 @@ func (c *Client) Scan(ctx context.Context, start, end []byte, limit int, mode pb
 	return
 }
 
-// do runs op against the presumed leader, switching on NotLeader hints
-// and connection failures with capped exponential backoff.
-func (c *Client) do(ctx context.Context, op func(context.Context, pb.KVClient) error) error {
+// Do runs op against the presumed leader, switching on NotLeader hints
+// and connection failures with capped exponential backoff. Routers use it
+// to forward requests they built themselves.
+func (c *Client) Do(ctx context.Context, op func(context.Context, pb.KVClient) error) error {
 	backoff := 20 * time.Millisecond
 	for {
 		addr := c.target()

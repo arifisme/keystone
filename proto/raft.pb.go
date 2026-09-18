@@ -91,6 +91,7 @@ func (x *LogEntry) GetData() []byte {
 
 type RaftMessage struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
+	Group         uint64                 `protobuf:"varint,16,opt,name=group,proto3" json:"group,omitempty"`
 	Type          uint32                 `protobuf:"varint,1,opt,name=type,proto3" json:"type,omitempty"`
 	From          uint64                 `protobuf:"varint,2,opt,name=from,proto3" json:"from,omitempty"`
 	To            uint64                 `protobuf:"varint,3,opt,name=to,proto3" json:"to,omitempty"`
@@ -138,6 +139,13 @@ func (x *RaftMessage) ProtoReflect() protoreflect.Message {
 // Deprecated: Use RaftMessage.ProtoReflect.Descriptor instead.
 func (*RaftMessage) Descriptor() ([]byte, []int) {
 	return file_raft_proto_rawDescGZIP(), []int{1}
+}
+
+func (x *RaftMessage) GetGroup() uint64 {
+	if x != nil {
+		return x.Group
+	}
+	return 0
 }
 
 func (x *RaftMessage) GetType() uint32 {
@@ -291,8 +299,9 @@ const file_raft_proto_rawDesc = "" +
 	"\x05index\x18\x01 \x01(\x04R\x05index\x12\x12\n" +
 	"\x04term\x18\x02 \x01(\x04R\x04term\x12\x12\n" +
 	"\x04type\x18\x03 \x01(\rR\x04type\x12\x12\n" +
-	"\x04data\x18\x04 \x01(\fR\x04data\"\x8d\x03\n" +
-	"\vRaftMessage\x12\x12\n" +
+	"\x04data\x18\x04 \x01(\fR\x04data\"\xa3\x03\n" +
+	"\vRaftMessage\x12\x14\n" +
+	"\x05group\x18\x10 \x01(\x04R\x05group\x12\x12\n" +
 	"\x04type\x18\x01 \x01(\rR\x04type\x12\x12\n" +
 	"\x04from\x18\x02 \x01(\x04R\x04from\x12\x0e\n" +
 	"\x02to\x18\x03 \x01(\x04R\x02to\x12\x12\n" +

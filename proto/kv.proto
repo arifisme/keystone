@@ -72,7 +72,11 @@ message Session {
   uint64 seq = 2;
 }
 
-message RegisterRequest {}
+// A request names the Raft group it is for. Zero lets the receiving node
+// route it by key through the shard map.
+message RegisterRequest {
+  uint64 group = 1;
+}
 
 message RegisterResponse {
   uint64 client_id = 1;
@@ -82,6 +86,7 @@ message GetRequest {
   bytes key = 1;
   ReadMode mode = 2;
   Session session = 3;
+  uint64 group = 4;
 }
 
 message GetResponse {
@@ -93,6 +98,7 @@ message PutRequest {
   Session session = 1;
   bytes key = 2;
   bytes value = 3;
+  uint64 group = 4;
 }
 
 message PutResponse {}
@@ -100,6 +106,7 @@ message PutResponse {}
 message DeleteRequest {
   Session session = 1;
   bytes key = 2;
+  uint64 group = 3;
 }
 
 message DeleteResponse {}
@@ -109,6 +116,7 @@ message CasRequest {
   bytes key = 2;
   optional bytes expected = 3;
   bytes value = 4;
+  uint64 group = 5;
 }
 
 message CasResponse {
@@ -123,6 +131,7 @@ message ScanRequest {
   uint32 limit = 3;
   ReadMode mode = 4;
   Session session = 5;
+  uint64 group = 6;
 }
 
 message ScanResponse {
@@ -134,6 +143,12 @@ message ScanResponse {
 message NotLeader {
   uint64 leader_id = 1;
   string leader_addr = 2;
+}
+
+// ShardMap is stored in the meta group: element i is the group serving
+// shard i.
+message ShardMap {
+  repeated uint64 groups = 1;
 }
 
 service KV {

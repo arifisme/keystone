@@ -35,10 +35,15 @@ func main() {
 	if *addr == "" {
 		*addr = peerMap[raft.NodeID(*id)]
 	}
-	n, err := kv.Start(kv.NodeOptions{ID: raft.NodeID(*id), Peers: peerMap, Dir: *dir, Addr: *addr})
+	var members []raft.NodeID
+	for id := range peerMap {
+		members = append(members, id)
+	}
+	n, err := kv.Open(kv.NodeOptions{ID: raft.NodeID(*id), Peers: peerMap, Groups: map[uint64][]raft.NodeID{1: members}, Dir: *dir, Addr: *addr})
 	if err != nil {
 		log.Fatal(err)
 	}
+	n.Serve(n.Server())
 	log.Printf("node %d listening on %s", *id, *addr)
 
 	sig := make(chan os.Signal, 1)

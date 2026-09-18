@@ -43,12 +43,13 @@ func TestTransportDeliversMessagesAndSurvivesPeerRestart(t *testing.T) {
 	defer s1.Stop()
 	s2 := serveTransport(t, t2, peers[2])
 
+	g1, g2 := t1.Group(7), t2.Group(7)
 	send := func(i uint64) {
-		t1.Send(2, raft.Message{Type: raft.MsgApp, From: 1, To: 2, Term: i, Entries: []raft.Entry{{Index: i, Term: i, Data: []byte("x")}}})
+		g1.Send(2, raft.Message{Type: raft.MsgApp, From: 1, To: 2, Term: i, Entries: []raft.Entry{{Index: i, Term: i, Data: []byte("x")}}})
 	}
 	recv := func() raft.Message {
 		select {
-		case m := <-t2.Recv():
+		case m := <-g2.Recv():
 			return m
 		case <-time.After(5 * time.Second):
 			t.Fatal("no message")
@@ -64,13 +65,14 @@ func TestTransportDeliversMessagesAndSurvivesPeerRestart(t *testing.T) {
 	time.Sleep(50 * time.Millisecond)
 	t2b := NewTransport(2, peers)
 	defer t2b.Close()
+	g2b := t2b.Group(7)
 	s2b := serveTransport(t, t2b, peers[2])
 	defer s2b.Stop()
 	deadline := time.Now().Add(5 * time.Second)
 	for time.Now().Before(deadline) {
 		send(2)
 		select {
-		case m := <-t2b.Recv():
+		case m := <-g2b.Recv():
 			if m.Term == 2 {
 				return
 			}
@@ -85,5 +87,30 @@ func TestMessageRoundTripsThroughProto(t *testing.T) {
 	out := fromProto(toProto(in))
 	if out.Type != in.Type || out.From != in.From || out.Term != in.Term || out.ReadID != in.ReadID || !out.Done || out.Entries[0].Type != raft.EntryNoop || string(out.Entries[0].Data) != "e" || out.ConflictIndex != 4 {
 		t.Fatalf("round trip lost fields: %+v", out)
+	}
+}
+
+func TestTransportKeepsGroupsApart(t *testing.T) {
+	peers := map[raft.NodeID]string{1: freeAddr(t), 2: freeAddr(t)}
+	t1 := NewTransport(1, peers)
+	t2 := NewTransport(2, peers)
+	defer t1.Close()
+	defer t2.Close()
+	s2 := serveTransport(t, t2, peers[2])
+	defer s2.Stop()
+	a, b := t2.Group(1), t2.Group(2)
+	t1.Group(2).Send(2, raft.Message{Type: raft.MsgVote, From: 1, To: 2, Term: 3})
+	select {
+	case m := <-b.Recv():
+		if m.Term != 3 {
+			t.Fatalf("got %+v", m)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("group 2 never received")
+	}
+	select {
+	case m := <-a.Recv():
+		t.Fatalf("group 1 received group 2's message %+v", m)
+	case <-time.After(50 * time.Millisecond):
 	}
 }

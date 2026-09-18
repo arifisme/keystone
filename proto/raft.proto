@@ -12,6 +12,7 @@ message LogEntry {
 }
 
 message RaftMessage {
+  uint64 group = 16;
   uint32 type = 1;
   uint64 from = 2;
   uint64 to = 3;

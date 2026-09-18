@@ -710,8 +710,11 @@ func (x *Session) GetSeq() uint64 {
 	return 0
 }
 
+// A request names the Raft group it is for. Zero lets the receiving node
+// route it by key through the shard map.
 type RegisterRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
+	Group         uint64                 `protobuf:"varint,1,opt,name=group,proto3" json:"group,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -744,6 +747,13 @@ func (x *RegisterRequest) ProtoReflect() protoreflect.Message {
 // Deprecated: Use RegisterRequest.ProtoReflect.Descriptor instead.
 func (*RegisterRequest) Descriptor() ([]byte, []int) {
 	return file_kv_proto_rawDescGZIP(), []int{10}
+}
+
+func (x *RegisterRequest) GetGroup() uint64 {
+	if x != nil {
+		return x.Group
+	}
+	return 0
 }
 
 type RegisterResponse struct {
@@ -795,6 +805,7 @@ type GetRequest struct {
 	Key           []byte                 `protobuf:"bytes,1,opt,name=key,proto3" json:"key,omitempty"`
 	Mode          ReadMode               `protobuf:"varint,2,opt,name=mode,proto3,enum=keystone.ReadMode" json:"mode,omitempty"`
 	Session       *Session               `protobuf:"bytes,3,opt,name=session,proto3" json:"session,omitempty"`
+	Group         uint64                 `protobuf:"varint,4,opt,name=group,proto3" json:"group,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -848,6 +859,13 @@ func (x *GetRequest) GetSession() *Session {
 		return x.Session
 	}
 	return nil
+}
+
+func (x *GetRequest) GetGroup() uint64 {
+	if x != nil {
+		return x.Group
+	}
+	return 0
 }
 
 type GetResponse struct {
@@ -907,6 +925,7 @@ type PutRequest struct {
 	Session       *Session               `protobuf:"bytes,1,opt,name=session,proto3" json:"session,omitempty"`
 	Key           []byte                 `protobuf:"bytes,2,opt,name=key,proto3" json:"key,omitempty"`
 	Value         []byte                 `protobuf:"bytes,3,opt,name=value,proto3" json:"value,omitempty"`
+	Group         uint64                 `protobuf:"varint,4,opt,name=group,proto3" json:"group,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -962,6 +981,13 @@ func (x *PutRequest) GetValue() []byte {
 	return nil
 }
 
+func (x *PutRequest) GetGroup() uint64 {
+	if x != nil {
+		return x.Group
+	}
+	return 0
+}
+
 type PutResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	unknownFields protoimpl.UnknownFields
@@ -1002,6 +1028,7 @@ type DeleteRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Session       *Session               `protobuf:"bytes,1,opt,name=session,proto3" json:"session,omitempty"`
 	Key           []byte                 `protobuf:"bytes,2,opt,name=key,proto3" json:"key,omitempty"`
+	Group         uint64                 `protobuf:"varint,3,opt,name=group,proto3" json:"group,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1050,6 +1077,13 @@ func (x *DeleteRequest) GetKey() []byte {
 	return nil
 }
 
+func (x *DeleteRequest) GetGroup() uint64 {
+	if x != nil {
+		return x.Group
+	}
+	return 0
+}
+
 type DeleteResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	unknownFields protoimpl.UnknownFields
@@ -1092,6 +1126,7 @@ type CasRequest struct {
 	Key           []byte                 `protobuf:"bytes,2,opt,name=key,proto3" json:"key,omitempty"`
 	Expected      []byte                 `protobuf:"bytes,3,opt,name=expected,proto3,oneof" json:"expected,omitempty"`
 	Value         []byte                 `protobuf:"bytes,4,opt,name=value,proto3" json:"value,omitempty"`
+	Group         uint64                 `protobuf:"varint,5,opt,name=group,proto3" json:"group,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1152,6 +1187,13 @@ func (x *CasRequest) GetValue() []byte {
 		return x.Value
 	}
 	return nil
+}
+
+func (x *CasRequest) GetGroup() uint64 {
+	if x != nil {
+		return x.Group
+	}
+	return 0
 }
 
 type CasResponse struct {
@@ -1221,6 +1263,7 @@ type ScanRequest struct {
 	Limit         uint32                 `protobuf:"varint,3,opt,name=limit,proto3" json:"limit,omitempty"`
 	Mode          ReadMode               `protobuf:"varint,4,opt,name=mode,proto3,enum=keystone.ReadMode" json:"mode,omitempty"`
 	Session       *Session               `protobuf:"bytes,5,opt,name=session,proto3" json:"session,omitempty"`
+	Group         uint64                 `protobuf:"varint,6,opt,name=group,proto3" json:"group,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1288,6 +1331,13 @@ func (x *ScanRequest) GetSession() *Session {
 		return x.Session
 	}
 	return nil
+}
+
+func (x *ScanRequest) GetGroup() uint64 {
+	if x != nil {
+		return x.Group
+	}
+	return 0
 }
 
 type ScanResponse struct {
@@ -1388,6 +1438,52 @@ func (x *NotLeader) GetLeaderAddr() string {
 	return ""
 }
 
+// ShardMap is stored in the meta group: element i is the group serving
+// shard i.
+type ShardMap struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Groups        []uint64               `protobuf:"varint,1,rep,packed,name=groups,proto3" json:"groups,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ShardMap) Reset() {
+	*x = ShardMap{}
+	mi := &file_kv_proto_msgTypes[23]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ShardMap) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ShardMap) ProtoMessage() {}
+
+func (x *ShardMap) ProtoReflect() protoreflect.Message {
+	mi := &file_kv_proto_msgTypes[23]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ShardMap.ProtoReflect.Descriptor instead.
+func (*ShardMap) Descriptor() ([]byte, []int) {
+	return file_kv_proto_rawDescGZIP(), []int{23}
+}
+
+func (x *ShardMap) GetGroups() []uint64 {
+	if x != nil {
+		return x.Groups
+	}
+	return nil
+}
+
 var File_kv_proto protoreflect.FileDescriptor
 
 const file_kv_proto_rawDesc = "" +
@@ -1432,51 +1528,59 @@ const file_kv_proto_rawDesc = "" +
 	"\x03kvs\x18\x05 \x03(\v2\x12.keystone.KeyValueR\x03kvs\"8\n" +
 	"\aSession\x12\x1b\n" +
 	"\tclient_id\x18\x01 \x01(\x04R\bclientId\x12\x10\n" +
-	"\x03seq\x18\x02 \x01(\x04R\x03seq\"\x11\n" +
-	"\x0fRegisterRequest\"/\n" +
+	"\x03seq\x18\x02 \x01(\x04R\x03seq\"'\n" +
+	"\x0fRegisterRequest\x12\x14\n" +
+	"\x05group\x18\x01 \x01(\x04R\x05group\"/\n" +
 	"\x10RegisterResponse\x12\x1b\n" +
-	"\tclient_id\x18\x01 \x01(\x04R\bclientId\"s\n" +
+	"\tclient_id\x18\x01 \x01(\x04R\bclientId\"\x89\x01\n" +
 	"\n" +
 	"GetRequest\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\fR\x03key\x12&\n" +
 	"\x04mode\x18\x02 \x01(\x0e2\x12.keystone.ReadModeR\x04mode\x12+\n" +
-	"\asession\x18\x03 \x01(\v2\x11.keystone.SessionR\asession\"9\n" +
+	"\asession\x18\x03 \x01(\v2\x11.keystone.SessionR\asession\x12\x14\n" +
+	"\x05group\x18\x04 \x01(\x04R\x05group\"9\n" +
 	"\vGetResponse\x12\x14\n" +
 	"\x05found\x18\x01 \x01(\bR\x05found\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\fR\x05value\"a\n" +
+	"\x05value\x18\x02 \x01(\fR\x05value\"w\n" +
 	"\n" +
 	"PutRequest\x12+\n" +
 	"\asession\x18\x01 \x01(\v2\x11.keystone.SessionR\asession\x12\x10\n" +
 	"\x03key\x18\x02 \x01(\fR\x03key\x12\x14\n" +
-	"\x05value\x18\x03 \x01(\fR\x05value\"\r\n" +
-	"\vPutResponse\"N\n" +
+	"\x05value\x18\x03 \x01(\fR\x05value\x12\x14\n" +
+	"\x05group\x18\x04 \x01(\x04R\x05group\"\r\n" +
+	"\vPutResponse\"d\n" +
 	"\rDeleteRequest\x12+\n" +
 	"\asession\x18\x01 \x01(\v2\x11.keystone.SessionR\asession\x12\x10\n" +
-	"\x03key\x18\x02 \x01(\fR\x03key\"\x10\n" +
-	"\x0eDeleteResponse\"\x8f\x01\n" +
+	"\x03key\x18\x02 \x01(\fR\x03key\x12\x14\n" +
+	"\x05group\x18\x03 \x01(\x04R\x05group\"\x10\n" +
+	"\x0eDeleteResponse\"\xa5\x01\n" +
 	"\n" +
 	"CasRequest\x12+\n" +
 	"\asession\x18\x01 \x01(\v2\x11.keystone.SessionR\asession\x12\x10\n" +
 	"\x03key\x18\x02 \x01(\fR\x03key\x12\x1f\n" +
 	"\bexpected\x18\x03 \x01(\fH\x00R\bexpected\x88\x01\x01\x12\x14\n" +
-	"\x05value\x18\x04 \x01(\fR\x05valueB\v\n" +
+	"\x05value\x18\x04 \x01(\fR\x05value\x12\x14\n" +
+	"\x05group\x18\x05 \x01(\x04R\x05groupB\v\n" +
 	"\t_expected\"W\n" +
 	"\vCasResponse\x12\x18\n" +
 	"\asuccess\x18\x01 \x01(\bR\asuccess\x12\x14\n" +
 	"\x05found\x18\x02 \x01(\bR\x05found\x12\x18\n" +
-	"\acurrent\x18\x03 \x01(\fR\acurrent\"\xa0\x01\n" +
+	"\acurrent\x18\x03 \x01(\fR\acurrent\"\xb6\x01\n" +
 	"\vScanRequest\x12\x14\n" +
 	"\x05start\x18\x01 \x01(\fR\x05start\x12\x10\n" +
 	"\x03end\x18\x02 \x01(\fR\x03end\x12\x14\n" +
 	"\x05limit\x18\x03 \x01(\rR\x05limit\x12&\n" +
 	"\x04mode\x18\x04 \x01(\x0e2\x12.keystone.ReadModeR\x04mode\x12+\n" +
-	"\asession\x18\x05 \x01(\v2\x11.keystone.SessionR\asession\"4\n" +
+	"\asession\x18\x05 \x01(\v2\x11.keystone.SessionR\asession\x12\x14\n" +
+	"\x05group\x18\x06 \x01(\x04R\x05group\"4\n" +
 	"\fScanResponse\x12$\n" +
 	"\x03kvs\x18\x01 \x03(\v2\x12.keystone.KeyValueR\x03kvs\"I\n" +
 	"\tNotLeader\x12\x1b\n" +
 	"\tleader_id\x18\x01 \x01(\x04R\bleaderId\x12\x1f\n" +
 	"\vleader_addr\x18\x02 \x01(\tR\n" +
-	"leaderAddr*#\n" +
+	"leaderAddr\"\"\n" +
+	"\bShardMap\x12\x16\n" +
+	"\x06groups\x18\x01 \x03(\x04R\x06groups*#\n" +
 	"\bReadMode\x12\x0e\n" +
 	"\n" +
 	"READ_INDEX\x10\x00\x12\a\n" +
@@ -1502,7 +1606,7 @@ func file_kv_proto_rawDescGZIP() []byte {
 }
 
 var file_kv_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_kv_proto_msgTypes = make([]protoimpl.MessageInfo, 23)
+var file_kv_proto_msgTypes = make([]protoimpl.MessageInfo, 24)
 var file_kv_proto_goTypes = []any{
 	(ReadMode)(0),            // 0: keystone.ReadMode
 	(*Command)(nil),          // 1: keystone.Command
@@ -1528,6 +1632,7 @@ var file_kv_proto_goTypes = []any{
 	(*ScanRequest)(nil),      // 21: keystone.ScanRequest
 	(*ScanResponse)(nil),     // 22: keystone.ScanResponse
 	(*NotLeader)(nil),        // 23: keystone.NotLeader
+	(*ShardMap)(nil),         // 24: keystone.ShardMap
 }
 var file_kv_proto_depIdxs = []int32{
 	2,  // 0: keystone.Command.register:type_name -> keystone.RegisterOp
@@ -1585,7 +1690,7 @@ func file_kv_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_kv_proto_rawDesc), len(file_kv_proto_rawDesc)),
 			NumEnums:      1,
-			NumMessages:   23,
+			NumMessages:   24,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

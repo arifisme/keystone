@@ -43,9 +43,14 @@ func startCluster(t *testing.T, n int, snap uint64) *testCluster {
 
 func (c *testCluster) start(id raft.NodeID) {
 	c.t.Helper()
-	n, err := Start(NodeOptions{
+	var members []raft.NodeID
+	for m := range c.peers {
+		members = append(members, m)
+	}
+	n, err := Open(NodeOptions{
 		ID:                id,
 		Peers:             c.peers,
+		Groups:            map[uint64][]raft.NodeID{1: members},
 		Dir:               c.dirs[id],
 		Addr:              c.peers[id],
 		Rand:              rand.New(rand.NewSource(int64(id))),
@@ -57,6 +62,7 @@ func (c *testCluster) start(id raft.NodeID) {
 	if err != nil {
 		c.t.Fatal(err)
 	}
+	n.Serve(n.Server())
 	c.nodes[id] = n
 }
 
@@ -78,7 +84,7 @@ func (c *testCluster) waitLeader() *Node {
 	deadline := time.Now().Add(5 * time.Second)
 	for time.Now().Before(deadline) {
 		for _, n := range c.nodes {
-			if n.Status().State == raft.Leader {
+			if n.Group(1).Status().State == raft.Leader {
 				return n
 			}
 		}
@@ -147,7 +153,7 @@ func TestClientFollowsNewLeaderAfterLeaderDies(t *testing.T) {
 	if err := cl.Put(ctx, []byte("before"), []byte("1")); err != nil {
 		t.Fatal(err)
 	}
-	oldID := old.Status().ID
+	oldID := old.Group(1).Status().ID
 	c.kill(oldID)
 	if err := cl.Put(ctx, []byte("after"), []byte("2")); err != nil {
 		t.Fatalf("put after leader death: %v", err)
@@ -159,15 +165,15 @@ func TestClientFollowsNewLeaderAfterLeaderDies(t *testing.T) {
 	deadline := time.Now().Add(5 * time.Second)
 	for {
 		l := c.waitLeader()
-		if c.nodes[oldID].Status().Applied >= l.Status().Commit {
+		if c.nodes[oldID].Group(1).Status().Applied >= l.Group(1).Status().Commit {
 			break
 		}
 		if time.Now().After(deadline) {
-			t.Fatalf("restarted node did not catch up: %+v vs %+v", c.nodes[oldID].Status(), l.Status())
+			t.Fatalf("restarted node did not catch up: %+v vs %+v", c.nodes[oldID].Group(1).Status(), l.Group(1).Status())
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
-	if v, found, _ := c.nodes[oldID].sm.Get([]byte("after")); !found || string(v) != "2" {
+	if v, found, _ := c.nodes[oldID].Group(1).sm.Get([]byte("after")); !found || string(v) != "2" {
 		t.Fatalf("restarted node missing write made while down: %q %v", v, found)
 	}
 }
@@ -177,7 +183,7 @@ func TestNodeRejoinsThroughSnapshot(t *testing.T) {
 	l := c.waitLeader()
 	var follower raft.NodeID
 	for id := range c.nodes {
-		if id != l.Status().ID {
+		if id != l.Group(1).Status().ID {
 			follower = id
 			break
 		}
@@ -190,21 +196,21 @@ func TestNodeRejoinsThroughSnapshot(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if s := l.Status(); s.FirstIndex <= 1 {
+	if s := l.Group(1).Status(); s.FirstIndex <= 1 {
 		t.Fatalf("leader never compacted: %+v", s)
 	}
 	c.start(follower)
 	deadline := time.Now().Add(10 * time.Second)
-	for c.nodes[follower].Status().Applied < l.Status().Commit {
+	for c.nodes[follower].Group(1).Status().Applied < l.Group(1).Status().Commit {
 		if time.Now().After(deadline) {
-			t.Fatalf("follower stuck: %+v", c.nodes[follower].Status())
+			t.Fatalf("follower stuck: %+v", c.nodes[follower].Group(1).Status())
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
-	if s := c.nodes[follower].Status(); s.FirstIndex <= 1 {
+	if s := c.nodes[follower].Group(1).Status(); s.FirstIndex <= 1 {
 		t.Fatalf("follower caught up without a snapshot: %+v", s)
 	}
-	kvs, err := c.nodes[follower].sm.Scan(nil, nil, 0)
+	kvs, err := c.nodes[follower].Group(1).sm.Scan(nil, nil, 0)
 	if err != nil || len(kvs) != 150 {
 		t.Fatalf("follower has %d keys, %v", len(kvs), err)
 	}
@@ -213,7 +219,7 @@ func TestNodeRejoinsThroughSnapshot(t *testing.T) {
 func TestRetriedWriteIsAppliedOnce(t *testing.T) {
 	c := startCluster(t, 3, 0)
 	l := c.waitLeader()
-	conn, err := grpc.NewClient(c.peers[l.Status().ID], grpc.WithTransportCredentials(insecure.NewCredentials()))
+	conn, err := grpc.NewClient(c.peers[l.Group(1).Status().ID], grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
 		t.Fatal(err)
 	}
