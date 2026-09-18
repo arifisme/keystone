@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"io"
 	"math/rand"
 	"os"
 	"path/filepath"
@@ -47,6 +48,12 @@ type DB interface {
 	Write(b *Batch) error
 	// Scan returns keys in [start, end). A nil end means no upper bound.
 	Scan(start, end []byte) Iterator
+	// Sync forces everything written so far to stable storage.
+	Sync() error
+	// Export writes the live contents as one SSTable.
+	Export(w io.Writer) error
+	// Restore replaces the contents with an SSTable produced by Export.
+	Restore(r io.Reader) error
 	Close() error
 }
 
@@ -545,6 +552,132 @@ func (d *db) writeTableFiltered(it internalIter, dropTombstones bool) (*table, e
 		return nil, nil
 	}
 	return openTable(path, meta)
+}
+
+func (d *db) Sync() error {
+	return d.wal.Sync()
+}
+
+func (d *db) Export(w io.Writer) error {
+	v, seq, err := d.acquire()
+	if err != nil {
+		return err
+	}
+	defer v.unref()
+	children := []internalIter{v.mem.iter()}
+	for i := len(v.imm) - 1; i >= 0; i-- {
+		children = append(children, v.imm[i].iter())
+	}
+	for _, t := range v.tables {
+		children = append(children, t.iter())
+	}
+	m := newMergeIter(children)
+	defer m.close()
+	tw := newStreamWriter(w, d.opts.BlockSize)
+	var last []byte
+	for m.seekToFirst(); m.valid(); m.next() {
+		user, s, kind := splitInternalKey(m.key())
+		if s > seq || bytes.Equal(user, last) {
+			continue
+		}
+		last = append(last[:0], user...)
+		if kind == kindDelete {
+			continue
+		}
+		if err := tw.add(m.key(), m.value()); err != nil {
+			return err
+		}
+	}
+	if err := m.close(); err != nil {
+		return err
+	}
+	_, err = tw.finish()
+	return err
+}
+
+// Restore copies r into a new table file, makes it the only live table,
+// and starts a fresh memtable and WAL segment so nothing older survives a
+// reopen. The caller must not write concurrently.
+func (d *db) Restore(r io.Reader) error {
+	d.installMu.Lock()
+	defer d.installMu.Unlock()
+	num := d.allocNum()
+	path := tablePath(d.dir, num)
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o644)
+	if err != nil {
+		return err
+	}
+	size, err := io.Copy(f, r)
+	if err == nil {
+		err = f.Sync()
+	}
+	if cerr := f.Close(); err == nil {
+		err = cerr
+	}
+	if err != nil {
+		os.Remove(path)
+		return fmt.Errorf("restore: %w", err)
+	}
+	t, err := openTable(path, tableMeta{num: num, size: uint64(size)})
+	if err != nil {
+		os.Remove(path)
+		return fmt.Errorf("restore: %w", err)
+	}
+	var maxSeq uint64
+	it := t.iter()
+	for it.seekToFirst(); it.valid(); it.next() {
+		if t.meta.count == 0 {
+			t.meta.smallest = append([]byte(nil), it.key()...)
+		}
+		t.meta.largest = append(t.meta.largest[:0], it.key()...)
+		t.meta.count++
+		if _, s, _ := splitInternalKey(it.key()); s > maxSeq {
+			maxSeq = s
+		}
+	}
+	if err := it.close(); err != nil {
+		t.unref()
+		os.Remove(path)
+		return fmt.Errorf("restore: %w", err)
+	}
+
+	seg, err := d.wal.Rotate()
+	if err != nil {
+		t.unref()
+		return err
+	}
+	d.mu.Lock()
+	if maxSeq > d.seq.Load() {
+		d.seq.Store(maxSeq)
+	}
+	d.flushedSeq = maxSeq
+	man := &manifest{nextNum: d.nextNum, lastSeq: maxSeq, logNum: seg}
+	if t.meta.count > 0 {
+		man.tables = []tableMeta{t.meta}
+	}
+	d.mu.Unlock()
+	if err := writeManifest(d.dir, man); err != nil {
+		t.unref()
+		return err
+	}
+	d.mu.Lock()
+	old := d.current
+	var tables []*table
+	if t.meta.count > 0 {
+		tables = []*table{t}
+	}
+	d.current = newVersion(newMemtable(d.opts.Rand.Uint64(), seg), nil, tables)
+	d.mu.Unlock()
+	for _, ot := range old.tables {
+		ot.gone.Store(true)
+	}
+	old.unref()
+	t.unref()
+	if t.meta.count == 0 {
+		os.Remove(path)
+	}
+	d.bgCond.Broadcast()
+	return d.wal.DeleteBefore(seg)
 }
 
 func (d *db) Close() error {

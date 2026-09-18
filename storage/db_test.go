@@ -394,3 +394,72 @@ func TestDBGetAfterCloseFails(t *testing.T) {
 		t.Fatalf("put err = %v", err)
 	}
 }
+
+func TestDBExportRestoreRoundTripsLiveState(t *testing.T) {
+	src, err := Open(t.TempDir(), Options{MemtableSize: 4 << 10, BlockSize: 256})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer src.Close()
+	oracle := map[string][]byte{}
+	for i := 0; i < 500; i++ {
+		k := fmt.Sprintf("k%03d", i%200)
+		v := []byte(fmt.Sprintf("v%d", i))
+		src.Put([]byte(k), v)
+		oracle[k] = v
+	}
+	for i := 0; i < 200; i += 3 {
+		k := fmt.Sprintf("k%03d", i)
+		src.Delete([]byte(k))
+		delete(oracle, k)
+	}
+	var buf bytes.Buffer
+	if err := src.Export(&buf); err != nil {
+		t.Fatal(err)
+	}
+
+	dstDir := t.TempDir()
+	dst, err := Open(dstDir, Options{MemtableSize: 4 << 10, BlockSize: 256})
+	if err != nil {
+		t.Fatal(err)
+	}
+	dst.Put([]byte("stale"), []byte("gone after restore"))
+	dst.Put([]byte("k001"), []byte("stale value"))
+	if err := dst.Restore(bytes.NewReader(buf.Bytes())); err != nil {
+		t.Fatal(err)
+	}
+	checkOracle(t, dst, oracle)
+
+	// Writes after a restore must win over restored versions.
+	dst.Put([]byte("k001"), []byte("after"))
+	oracle["k001"] = []byte("after")
+	checkOracle(t, dst, oracle)
+	if err := dst.Close(); err != nil {
+		t.Fatal(err)
+	}
+	dst, err = Open(dstDir, Options{MemtableSize: 4 << 10, BlockSize: 256})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer dst.Close()
+	checkOracle(t, dst, oracle)
+	if _, err := dst.Get([]byte("stale")); err != ErrNotFound {
+		t.Fatalf("stale key survived restore: %v", err)
+	}
+}
+
+func TestDBExportOfEmptyDatabaseRestoresEmpty(t *testing.T) {
+	src, _ := Open(t.TempDir(), Options{})
+	defer src.Close()
+	var buf bytes.Buffer
+	if err := src.Export(&buf); err != nil {
+		t.Fatal(err)
+	}
+	dst, _ := Open(t.TempDir(), Options{})
+	defer dst.Close()
+	dst.Put([]byte("x"), []byte("y"))
+	if err := dst.Restore(&buf); err != nil {
+		t.Fatal(err)
+	}
+	checkOracle(t, dst, map[string][]byte{})
+}

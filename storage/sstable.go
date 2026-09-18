@@ -86,6 +86,12 @@ func newTableWriter(path string, num uint64, blockSize int) (*tableWriter, error
 	return &tableWriter{f: f, w: bufio.NewWriterSize(f, 1<<20), blockSize: blockSize, meta: tableMeta{num: num}}, nil
 }
 
+// newStreamWriter writes a table to w with no file behind it; finish
+// flushes but has nothing to sync or close.
+func newStreamWriter(w io.Writer, blockSize int) *tableWriter {
+	return &tableWriter{w: bufio.NewWriterSize(w, 1<<20), blockSize: blockSize}
+}
+
 func (w *tableWriter) add(ik, value []byte) error {
 	if w.pending {
 		w.index.add(w.lastKey, w.handle.encode(nil))
@@ -162,11 +168,13 @@ func (w *tableWriter) finish() (tableMeta, error) {
 	if err := w.w.Flush(); err != nil {
 		return tableMeta{}, err
 	}
-	if err := w.f.Sync(); err != nil {
-		return tableMeta{}, err
-	}
-	if err := w.f.Close(); err != nil {
-		return tableMeta{}, err
+	if w.f != nil {
+		if err := w.f.Sync(); err != nil {
+			return tableMeta{}, err
+		}
+		if err := w.f.Close(); err != nil {
+			return tableMeta{}, err
+		}
 	}
 	w.meta.size = w.off + footerSize
 	w.meta.largest = append([]byte(nil), w.lastKey...)
@@ -174,8 +182,10 @@ func (w *tableWriter) finish() (tableMeta, error) {
 }
 
 func (w *tableWriter) abort() {
-	w.f.Close()
-	os.Remove(w.f.Name())
+	if w.f != nil {
+		w.f.Close()
+		os.Remove(w.f.Name())
+	}
 }
 
 // table is an open SSTable. Readers hold a reference so a compaction can
