@@ -23,7 +23,7 @@ engine on every replica.
 ```
 
 `shard/` sits above `kv/`: it maps key hashes to independent Raft groups
-and forwards requests. It is described in its own section once built.
+and forwards requests.
 
 ## Packages
 
@@ -268,6 +268,34 @@ a `NotLeader` detail naming the leader's id and address. The client
 switches to that address and retries at once; a connection failure moves
 it to the next endpoint with capped exponential backoff.
 
+## Sharding
+
+A node hosts a replica of every Raft group it is a member of, each with
+its own engine, log and state machine, and one gRPC listener. Messages
+and requests carry a group id; the transport demultiplexes incoming
+streams by it.
+
+The key space is cut into sixteen hash ranges. The shard map, an array of
+sixteen group ids, lives under a reserved key in group 1, the meta group,
+which is an ordinary key-value group that serves no user keys. The first
+router to find no map writes the default round-robin assignment with a
+compare-and-swap, so concurrent routers agree on it.
+
+Every node runs a router as its client-facing service. A request that
+names a group is served by the local replica. One that names none is
+hashed, mapped to a group and forwarded to that group's leader through
+the same client library `keystonectl` uses, so leader hints and backoff
+are shared code. The caller's session travels with the request: sessions
+are issued by the meta group so their ids are unique, and a group starts
+tracking a session the first time it sees it. A scan is sent to every
+group and merged; each group answers from its own consistent point, so a
+scan across shards is not one snapshot.
+
+Shards do not move. Rebalancing would be a stop-the-shard copy: mark the
+range as moving in the meta group, snapshot it out of the source group
+into the destination, flip the map entry, and drop it from the source.
+It is not built.
+
 ## Simulation
 
 `sim` runs a whole cluster in one goroutine. Every source of
@@ -282,6 +310,6 @@ checked.
 ## Non-goals
 
 - Distributed transactions across shards. Each key lives in one Raft group
-  and operations never span groups.
+  and operations never span groups; a scan across groups is not atomic.
 - Dynamic membership through joint consensus. Group membership is fixed at
-  startup; rebalancing moves whole shards between fixed groups instead.
+  startup.

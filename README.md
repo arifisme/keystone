@@ -22,8 +22,9 @@ See [DESIGN.md](DESIGN.md) for how it is put together.
 
 ## Status
 
-Storage engine, Raft, the key-value service and the deterministic
-simulator are complete. Sharding across Raft groups is next.
+Storage engine, Raft, the key-value service, the deterministic simulator
+and sharding across Raft groups are complete. Benchmarks, metrics and
+container packaging are next.
 
 ## Testing
 
@@ -58,6 +59,10 @@ half of the reads through ReadIndex and half through the log, retrying
 with the same sequence number exactly as the real client does. The
 history goes to [Porcupine](https://github.com/anishathalye/porcupine)
 with a per-key register model after every run.
+
+`TestSimMultiShard` runs the same machinery over three groups of three
+nodes, with the meta group issuing sessions and two groups owning the key
+space, so clients cross groups and sessions must carry between them.
 
 ```
 go test -race ./sim                          # 500 seeds, chaos level 2, what CI runs
