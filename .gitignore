@@ -1,0 +1,8 @@
+/bin/
+/keystone
+/keystonectl
+*.test
+*.out
+*.prof
+/data/
+/bench/results/*.raw
