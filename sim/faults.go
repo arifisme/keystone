@@ -112,5 +112,14 @@ func (s *Sim) partition() {
 	}
 	s.net.cut(pairs)
 	dur := 100*time.Millisecond + time.Duration(s.rng.Int63n(int64(1500*time.Millisecond)))
+	if s.now+dur > s.cfg.Faults {
+		dur = s.cfg.Faults - s.now
+	}
 	s.schedule(dur, &event{kind: evHeal, pairs: pairs})
+}
+
+// quiet switches off message loss for the convergence period.
+func (s *Sim) quiet() {
+	s.net.drop, s.net.dup = 0, 0
+	s.faults.tornTail = 0
 }

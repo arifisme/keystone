@@ -19,10 +19,11 @@ const (
 	evClient
 	evClientTimeout
 	evChaos
+	evQuiet
 )
 
 func (k eventKind) String() string {
-	return [...]string{"deliver", "tick", "crash", "restart", "partition", "heal", "client", "timeout", "chaos"}[k]
+	return [...]string{"deliver", "tick", "crash", "restart", "partition", "heal", "client", "timeout", "chaos", "quiet"}[k]
 }
 
 type event struct {

@@ -203,17 +203,26 @@ func (r *Raft) Tick() {
 	}
 }
 
+// becomeFollower adopts term. The election timer restarts only when a
+// leader is known or the node is stepping down from candidate or leader.
+// A follower that merely learns of a higher term from a vote request it
+// rejects keeps its countdown: restarting it would let a node with a
+// stale log, timing out again and again, keep the one node whose log can
+// win from ever standing.
 func (r *Raft) becomeFollower(term uint64, lead NodeID) {
 	if term > r.term {
 		r.term = term
 		r.vote = None
 		r.persistState()
 	}
+	restart := lead != None || r.state != Follower
 	r.state = Follower
 	r.lead = lead
 	r.votes, r.next, r.match = nil, nil, nil
 	r.reads, r.snapOut = nil, nil
-	r.resetTimeout()
+	if restart {
+		r.resetTimeout()
+	}
 }
 
 func (r *Raft) becomeCandidate() {

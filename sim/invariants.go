@@ -124,7 +124,7 @@ func newTrace() *trace {
 
 func (t *trace) add(s string) {
 	t.entries[t.next] = s
-	t.next = (t.next + 1) % traceSize
+	t.next = (t.next + 1) % len(t.entries)
 	if t.next == 0 {
 		t.full = true
 	}
@@ -137,8 +137,8 @@ func (t *trace) String() string {
 	if t.full {
 		start = t.next
 	}
-	for i := 0; i < traceSize; i++ {
-		idx := (start + i) % traceSize
+	for i := 0; i < len(t.entries); i++ {
+		idx := (start + i) % len(t.entries)
 		if !t.full && idx >= t.next {
 			break
 		}

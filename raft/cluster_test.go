@@ -348,3 +348,42 @@ func statusLine(c *cluster) string {
 	}
 	return out
 }
+
+// A follower that rejects a vote request from a higher term must not
+// restart its election timer, or a node with a stale log can keep the
+// node with the longest log from ever campaigning.
+func TestRejectedVoteRequestDoesNotRestartElectionTimer(t *testing.T) {
+	store := NewMemStore()
+	store.Append([]Entry{{Index: 1, Term: 1}, {Index: 2, Term: 1}, {Index: 3, Term: 1}})
+	tr := &capture{}
+	r := newRaft(t, 2, []NodeID{1, 2, 3}, store, tr)
+	for i := 0; i < r.timeout-1; i++ {
+		r.Tick()
+	}
+	r.Step(Message{Type: MsgVote, From: 1, Term: 5, Index: 1, LogTerm: 1})
+	resp := tr.take()[0]
+	if !resp.Reject || r.term != 5 {
+		t.Fatalf("resp %+v term %d", resp, r.term)
+	}
+	r.Tick()
+	if r.state != Candidate || r.term != 6 {
+		t.Fatalf("timer was restarted: state %v term %d", r.state, r.term)
+	}
+}
+
+func TestGrantedVoteRestartsElectionTimer(t *testing.T) {
+	store := NewMemStore()
+	tr := &capture{}
+	r := newRaft(t, 2, []NodeID{1, 2, 3}, store, tr)
+	for i := 0; i < r.timeout-1; i++ {
+		r.Tick()
+	}
+	r.Step(Message{Type: MsgVote, From: 1, Term: 5, Index: 0, LogTerm: 0})
+	if resp := tr.take()[0]; resp.Reject {
+		t.Fatalf("vote not granted: %+v", resp)
+	}
+	r.Tick()
+	if r.state != Follower {
+		t.Fatalf("granting a vote should restart the timer, state %v", r.state)
+	}
+}

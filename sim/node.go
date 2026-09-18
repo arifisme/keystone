@@ -147,7 +147,7 @@ func (s *Sim) jitteredTick() time.Duration {
 func (s *Sim) run(n *node, step func()) {
 	n.store.checkpoint()
 	step()
-	if s.now < s.cfg.Faults && n.store.dirty() && s.rng.Float64() < s.faults.tornTail {
+	if n.store.dirty() && s.rng.Float64() < s.faults.tornTail {
 		s.stats.TornTails++
 		n.store.rollback(s.rng)
 		s.outbox = s.outbox[:0]

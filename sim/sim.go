@@ -117,6 +117,7 @@ func (s *Sim) Run() (Stats, error) {
 	if s.cfg.Chaos > 0 {
 		s.schedule(200*time.Millisecond, &event{kind: evChaos})
 	}
+	s.schedule(s.cfg.Faults, &event{kind: evQuiet})
 	end := s.cfg.Faults + s.cfg.Quiet
 	for len(s.queue) > 0 {
 		e := heap.Pop(&s.queue).(*event)
@@ -160,7 +161,22 @@ func (s *Sim) handle(e *event) {
 		s.clientTimeout(e)
 	case evChaos:
 		s.chaos()
+	case evQuiet:
+		s.quiet()
 	}
+}
+
+func (s *Sim) statusLine() string {
+	var b bytes.Buffer
+	for _, n := range s.nodes {
+		if !n.up {
+			fmt.Fprintf(&b, "[%d down] ", n.id)
+			continue
+		}
+		st := n.rn.Status()
+		fmt.Fprintf(&b, "[%d %s t%d lead=%d c%d a%d first=%d last=%d] ", n.id, st.State, st.Term, st.Leader, st.Commit, st.Applied, st.FirstIndex, st.LastIndex)
+	}
+	return b.String()
 }
 
 func (s *Sim) verify() error {
@@ -171,7 +187,7 @@ func (s *Sim) verify() error {
 	}
 	lead := s.leader()
 	if lead == nil {
-		return fmt.Errorf("seed %d: no leader after the quiet period", s.cfg.Seed)
+		return fmt.Errorf("seed %d: no leader after the quiet period: %s", s.cfg.Seed, s.statusLine())
 	}
 	commit := lead.rn.Status().Commit
 	var want []byte
