@@ -22,8 +22,57 @@ See [DESIGN.md](DESIGN.md) for how it is put together.
 
 ## Status
 
-The storage engine is complete. Raft, the key-value service, the
-simulator and sharding follow in that order.
+Storage engine, Raft, the key-value service and the deterministic
+simulator are complete. Sharding across Raft groups is next.
+
+## Testing
+
+The interesting tests are the ones that run a whole cluster inside one
+goroutine with nothing real underneath it.
+
+**Simulation.** `sim` replaces the network with a priority queue of
+messages keyed by simulated delivery time, the clock with a counter that
+advances only when the loop pops an event, and the Raft log with an
+in-memory journal whose unsynced tail is rolled back when a node crashes.
+Every choice comes from one seeded random source, so a seed reproduces a
+run exactly, and a failing run prints its seed and the last two hundred
+events.
+
+**Fault injection.** Each run draws its own message drop and duplicate
+rates, delay range and clock jitter, then schedules symmetric and
+asymmetric partitions with random membership and duration, node crashes
+with restarts, leader-targeted kills, and torn tails that keep a random
+prefix of a step's writes and none of its messages. Snapshots are forced
+every forty entries and sent in 128-byte chunks, so most runs install a
+few of them across partitions.
+
+**Invariants**, checked after every event: at most one leader per term,
+terms never decrease on a node, an index that any node has committed holds
+the same entry on every node that commits it, every state machine applies
+the same entry at every index, and a restarted node still holds everything
+it had reported committed.
+
+**Linearizability.** Three simulated clients issue gets, puts, deletes and
+compare-and-swaps over a handful of keys through the real state machine,
+half of the reads through ReadIndex and half through the log, retrying
+with the same sequence number exactly as the real client does. The
+history goes to [Porcupine](https://github.com/anishathalye/porcupine)
+with a per-key register model after every run.
+
+```
+go test -race ./sim                          # 500 seeds, chaos level 2, what CI runs
+go test ./sim -seeds=10000 -chaos=3          # about 40 s on 16 cores
+go test ./sim -seed=52 -chaos=2 -v           # replay one seed
+```
+
+The nightly workflow runs 50,000 seeds at the highest chaos level and
+5,000 iterations of the storage crash harness. [BUGS.md](BUGS.md) lists
+what the simulator has found so far.
+
+**Crash injection.** `storage/crash_test.go` runs a workload in a child
+process that acknowledges each write only after it returned, kills it
+with SIGKILL at a random moment, reopens the directory and checks that
+every acknowledged write is there. Two hundred iterations run in CI.
 
 ## Storage engine benchmarks
 
