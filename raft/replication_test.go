@@ -208,18 +208,46 @@ func TestLeaderBacktracksUsingConflictTerm(t *testing.T) {
 	// term 2. The leader has no term-2 entries, so it jumps to the
 	// follower's first index of that term.
 	r.Step(Message{Type: MsgAppResp, From: 2, Term: 5, Reject: true, ConflictTerm: 2, ConflictIndex: 4})
-	if r.next[2] != 4 {
-		t.Fatalf("next = %d, want 4", r.next[2])
-	}
 	sent := tr.take()
-	if len(sent) != 1 || sent[0].Index != 3 || sent[0].LogTerm != 1 {
-		t.Fatalf("resent %+v, want probe at prev index 3", sent)
+	if len(sent) != 1 || sent[0].Index != 3 || sent[0].LogTerm != 1 || len(sent[0].Entries) != 3 {
+		t.Fatalf("resent %+v, want entries from 4 after prev index 3", sent)
 	}
 
 	// Follower 3 has terms 1,1,1,1,1: conflict term 1 whose first index
 	// is 1; the leader holds term 1 through index 3, so it resumes at 4.
 	r.Step(Message{Type: MsgAppResp, From: 3, Term: 5, Reject: true, ConflictTerm: 1, ConflictIndex: 1})
-	if r.next[3] != 4 {
-		t.Fatalf("next = %d, want 4", r.next[3])
+	sent = tr.take()
+	if len(sent) != 1 || sent[0].Index != 3 || sent[0].Entries[0].Index != 4 {
+		t.Fatalf("resent %+v, want entries from 4", sent)
+	}
+}
+
+func TestLeaderPipelinesBatchesInsteadOfResendingThem(t *testing.T) {
+	store := NewMemStore()
+	tr := &capture{}
+	r := newRaft(t, 1, []NodeID{1, 2, 3}, store, tr)
+	r.becomeCandidate()
+	r.Step(Message{Type: MsgVoteResp, From: 2, Term: 1})
+	tr.take()
+	if _, err := r.Propose([][]byte{[]byte("a"), []byte("b")}); err != nil {
+		t.Fatal(err)
+	}
+	sent := tr.take()
+	if len(sent) != 2 || len(sent[0].Entries) != 2 {
+		t.Fatalf("first batch %+v", sent)
+	}
+	// Node 2 acknowledges the no-op only; its batch is still in flight.
+	// The commit advance must not resend the batch to node 3.
+	r.Step(Message{Type: MsgAppResp, From: 2, Term: 1, Index: 1})
+	for _, m := range tr.take() {
+		if len(m.Entries) != 0 {
+			t.Fatalf("resent %d entries to %d while its batch was in flight", len(m.Entries), m.To)
+		}
+	}
+	// A lost batch is repaired through rejection of the heartbeat probe.
+	r.Step(Message{Type: MsgAppResp, From: 3, Term: 1, Reject: true, ConflictIndex: 2})
+	sent = tr.take()
+	if len(sent) != 1 || sent[0].Index != 1 || len(sent[0].Entries) != 2 {
+		t.Fatalf("repair sent %+v", sent)
 	}
 }

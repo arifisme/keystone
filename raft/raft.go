@@ -440,6 +440,12 @@ func (r *Raft) broadcastAppend() {
 	}
 }
 
+// sendAppend ships the follower's next batch and advances its next index
+// at once, without waiting for the acknowledgement, so consecutive batches
+// pipeline instead of the same entries going out again on every
+// response. If a batch is lost the next heartbeat probes at the advanced
+// index, the follower rejects it, and backtracking resends from where it
+// really is.
 func (r *Raft) sendAppend(to NodeID, readID uint64) {
 	next := r.next[to]
 	first := r.store.FirstIndex()
@@ -459,6 +465,7 @@ func (r *Raft) sendAppend(to NodeID, readID uint64) {
 		if entries, err = r.store.Entries(next, hi); err != nil {
 			panic(fmt.Sprintf("raft: entries [%d,%d): %v", next, hi, err))
 		}
+		r.next[to] = hi
 	}
 	r.send(Message{
 		Type:    MsgApp,
