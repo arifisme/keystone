@@ -11,8 +11,15 @@ import (
 	"github.com/arifisme/keystone/storage"
 )
 
+type group struct {
+	id    uint64
+	ids   []raft.NodeID
+	nodes []*node
+}
+
 type node struct {
 	id    raft.NodeID
+	group *group
 	store *logStore
 	tr    *transport
 	clock *clock
@@ -77,7 +84,7 @@ func (s *Sim) start(n *node) {
 	rn, err := raft.NewNode(raft.NodeConfig{
 		Config: raft.Config{
 			ID:            n.id,
-			Peers:         s.ids,
+			Peers:         n.group.ids,
 			ElectionTick:  electionTick,
 			HeartbeatTick: 1,
 			SnapshotChunk: snapshotChunk,

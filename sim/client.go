@@ -37,6 +37,7 @@ type clientOp struct {
 	expected string
 	absent   bool
 	mode     pb.ReadMode
+	group    *group
 	seq      uint64
 	invoked  time.Duration
 	attempt  uint64
@@ -77,11 +78,13 @@ func (s *Sim) newOp(c *client) *clientOp {
 	op := &clientOp{invoked: s.now}
 	if c.clientID == 0 {
 		op.kind = opRegister
+		op.group = s.groups[0]
 		return op
 	}
 	c.seq++
 	op.seq = c.seq
 	op.key = fmt.Sprintf("k%d", s.rng.Intn(s.cfg.Keys))
+	op.group = s.groupFor(op.key)
 	switch r := s.rng.Intn(100); {
 	case r < 30:
 		op.kind = opGet
@@ -107,13 +110,24 @@ func (s *Sim) newOp(c *client) *clientOp {
 	return op
 }
 
+// A scan in a sharded cluster is one group's share of the key space.
+func (s *Sim) scanGroup(c *client) *group {
+	if len(s.groups) == 1 {
+		return s.groups[0]
+	}
+	return s.groups[1+s.rng.Intn(len(s.groups)-1)]
+}
+
 func (s *Sim) issue(c *client) {
 	op := c.op
+	if op.kind == opScan && op.group == nil {
+		op.group = s.scanGroup(c)
+	}
 	var target *node
-	if c.hint != raft.None && s.nodes[c.hint-1].up {
+	if c.hint != raft.None && s.nodes[c.hint-1].up && s.nodes[c.hint-1].group == op.group {
 		target = s.nodes[c.hint-1]
 	} else {
-		target = s.randomUp()
+		target = s.randomUpIn(op.group)
 	}
 	if target == nil {
 		s.schedule(retryDelay, &event{kind: evClient, client: c.id})

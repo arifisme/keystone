@@ -12,6 +12,7 @@ import (
 	"github.com/anishathalye/porcupine"
 
 	"github.com/arifisme/keystone/raft"
+	"github.com/arifisme/keystone/shard"
 )
 
 const (
@@ -22,7 +23,11 @@ const (
 )
 
 type Config struct {
-	Seed    int64
+	Seed int64
+	// Groups is the number of Raft groups; Nodes is the size of each. With
+	// more than one group, group 1 issues sessions and the rest serve
+	// hash ranges of the key space, as in a sharded deployment.
+	Groups  int
 	Nodes   int
 	Clients int
 	Keys    int
@@ -61,6 +66,7 @@ type Sim struct {
 
 	ids     []raft.NodeID
 	nodes   []*node
+	groups  []*group
 	net     *network
 	clients []*client
 	faults  faultParams
@@ -73,6 +79,9 @@ type Sim struct {
 }
 
 func New(cfg Config) *Sim {
+	if cfg.Groups == 0 {
+		cfg.Groups = 1
+	}
 	if cfg.Nodes == 0 {
 		cfg.Nodes = 3
 	}
@@ -90,12 +99,18 @@ func New(cfg Config) *Sim {
 	}
 	s := &Sim{cfg: cfg, rng: rand.New(rand.NewSource(cfg.Seed)), inv: newInvariants(), trace: newTrace()}
 	s.net = &network{s: s, cuts: map[[2]raft.NodeID]int{}}
-	for i := 1; i <= cfg.Nodes; i++ {
-		id := raft.NodeID(i)
-		s.ids = append(s.ids, id)
-		n := &node{id: id, store: &logStore{}, tr: &transport{s: s}}
-		n.clock = &clock{s: s, node: n}
-		s.nodes = append(s.nodes, n)
+	for gi := 1; gi <= cfg.Groups; gi++ {
+		g := &group{id: uint64(gi)}
+		for i := 0; i < cfg.Nodes; i++ {
+			id := raft.NodeID(len(s.nodes) + 1)
+			s.ids = append(s.ids, id)
+			g.ids = append(g.ids, id)
+			n := &node{id: id, group: g, store: &logStore{}, tr: &transport{s: s}}
+			n.clock = &clock{s: s, node: n}
+			s.nodes = append(s.nodes, n)
+			g.nodes = append(g.nodes, n)
+		}
+		s.groups = append(s.groups, g)
 	}
 	for i := 0; i < cfg.Clients; i++ {
 		s.clients = append(s.clients, &client{id: i})
@@ -185,25 +200,9 @@ func (s *Sim) verify() error {
 			return fmt.Errorf("seed %d: node %d still down at the end", s.cfg.Seed, n.id)
 		}
 	}
-	lead := s.leader()
-	if lead == nil {
-		return fmt.Errorf("seed %d: no leader after the quiet period: %s", s.cfg.Seed, s.statusLine())
-	}
-	commit := lead.rn.Status().Commit
-	var want []byte
-	for _, n := range s.nodes {
-		st := n.rn.Status()
-		if st.Applied != commit {
-			return fmt.Errorf("seed %d: node %d applied %d, leader committed %d", s.cfg.Seed, n.id, st.Applied, commit)
-		}
-		var buf bytes.Buffer
-		if err := n.db.Export(&buf); err != nil {
+	for _, g := range s.groups {
+		if err := s.verifyGroup(g); err != nil {
 			return err
-		}
-		if want == nil {
-			want = buf.Bytes()
-		} else if !bytes.Equal(want, buf.Bytes()) {
-			return fmt.Errorf("seed %d: node %d state differs from node %d", s.cfg.Seed, n.id, s.nodes[0].id)
 		}
 	}
 	for _, c := range s.clients {
@@ -215,4 +214,39 @@ func (s *Sim) verify() error {
 		return fmt.Errorf("seed %d: history of %d operations is not linearizable", s.cfg.Seed, len(s.history))
 	}
 	return nil
+}
+
+func (s *Sim) verifyGroup(g *group) error {
+	lead := s.leaderOf(g)
+	if lead == nil {
+		return fmt.Errorf("seed %d: group %d has no leader after the quiet period: %s", s.cfg.Seed, g.id, s.statusLine())
+	}
+	commit := lead.rn.Status().Commit
+	var want []byte
+	for _, n := range g.nodes {
+		st := n.rn.Status()
+		if st.Applied != commit {
+			return fmt.Errorf("seed %d: node %d applied %d, leader committed %d", s.cfg.Seed, n.id, st.Applied, commit)
+		}
+		var buf bytes.Buffer
+		if err := n.db.Export(&buf); err != nil {
+			return err
+		}
+		if want == nil {
+			want = buf.Bytes()
+		} else if !bytes.Equal(want, buf.Bytes()) {
+			return fmt.Errorf("seed %d: node %d state differs from node %d", s.cfg.Seed, n.id, g.nodes[0].id)
+		}
+	}
+	return nil
+}
+
+// groupFor routes a key the way the real router does: the meta group
+// issues sessions, the others each own a set of hash ranges.
+func (s *Sim) groupFor(key string) *group {
+	if len(s.groups) == 1 {
+		return s.groups[0]
+	}
+	shard := shard.ShardOf([]byte(key))
+	return s.groups[1+shard%(len(s.groups)-1)]
 }

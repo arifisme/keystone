@@ -51,7 +51,7 @@ func (s *Sim) chaos() {
 			s.schedule(s.restartDelay(), &event{kind: evRestart, node: n.id})
 		}
 	case r < 0.8 && s.faults.leaderKills:
-		if n := s.leader(); n != nil {
+		if n := s.leaderOf(s.groups[s.rng.Intn(len(s.groups))]); n != nil {
 			s.stats.LeaderKills++
 			s.crash(n)
 			s.schedule(s.restartDelay(), &event{kind: evRestart, node: n.id})
@@ -77,8 +77,21 @@ func (s *Sim) randomUp() *node {
 	return up[s.rng.Intn(len(up))]
 }
 
-func (s *Sim) leader() *node {
-	for _, n := range s.nodes {
+func (s *Sim) randomUpIn(g *group) *node {
+	var up []*node
+	for _, n := range g.nodes {
+		if n.up {
+			up = append(up, n)
+		}
+	}
+	if len(up) == 0 {
+		return nil
+	}
+	return up[s.rng.Intn(len(up))]
+}
+
+func (s *Sim) leaderOf(g *group) *node {
+	for _, n := range g.nodes {
 		if n.up && n.rn.Status().State == raft.Leader {
 			return n
 		}

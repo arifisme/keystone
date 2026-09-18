@@ -11,20 +11,27 @@ import (
 // seed and the last events, because the run is not worth continuing and
 // the seed is all that is needed to see it again.
 type invariants struct {
-	leaders    map[uint64]raft.NodeID
+	leaders    map[groupTerm]raft.NodeID
 	lastTerm   map[raft.NodeID]uint64
-	committed  []fingerprint
+	committed  map[uint64][]fingerprint
 	checked    map[raft.NodeID]uint64
-	appliedLog []fingerprint
+	appliedLog map[uint64][]fingerprint
 	lastApply  map[raft.NodeID]uint64
+}
+
+type groupTerm struct {
+	group uint64
+	term  uint64
 }
 
 func newInvariants() *invariants {
 	return &invariants{
-		leaders:   map[uint64]raft.NodeID{},
-		lastTerm:  map[raft.NodeID]uint64{},
-		checked:   map[raft.NodeID]uint64{},
-		lastApply: map[raft.NodeID]uint64{},
+		leaders:    map[groupTerm]raft.NodeID{},
+		lastTerm:   map[raft.NodeID]uint64{},
+		committed:  map[uint64][]fingerprint{},
+		checked:    map[raft.NodeID]uint64{},
+		appliedLog: map[uint64][]fingerprint{},
+		lastApply:  map[raft.NodeID]uint64{},
 	}
 }
 
@@ -43,19 +50,22 @@ func (inv *invariants) check(s *Sim) {
 		}
 		inv.lastTerm[n.id] = st.Term
 		if st.State == raft.Leader {
-			if other, ok := inv.leaders[st.Term]; ok && other != n.id {
-				s.violation("term %d has leaders %d and %d", st.Term, other, n.id)
+			key := groupTerm{n.group.id, st.Term}
+			if other, ok := inv.leaders[key]; ok && other != n.id {
+				s.violation("group %d term %d has leaders %d and %d", n.group.id, st.Term, other, n.id)
 			}
-			inv.leaders[st.Term] = n.id
+			inv.leaders[key] = n.id
 		}
 		from := inv.checked[n.id] + 1
 		if from <= n.store.snapIdx {
 			from = n.store.snapIdx + 1
 		}
+		log := inv.committed[n.group.id]
 		for i := from; i <= st.Commit; i++ {
 			fp := fingerprintOf(n.store.entries[i-n.store.snapIdx-1])
-			inv.record(s, &inv.committed, i, fp, "committed", n.id)
+			inv.record(s, &log, i, fp, "committed", n.id)
 		}
+		inv.committed[n.group.id] = log
 		if st.Commit > inv.checked[n.id] {
 			inv.checked[n.id] = st.Commit
 		}
@@ -92,7 +102,9 @@ func (inv *invariants) applied(s *Sim, n *node, e raft.Entry) {
 		}
 	}
 	inv.lastApply[n.id] = e.Index
-	inv.record(s, &inv.appliedLog, e.Index, fingerprintOf(e), "applied", n.id)
+	log := inv.appliedLog[n.group.id]
+	inv.record(s, &log, e.Index, fingerprintOf(e), "applied", n.id)
+	inv.appliedLog[n.group.id] = log
 }
 
 func (inv *invariants) restored(n *node, index uint64) {
