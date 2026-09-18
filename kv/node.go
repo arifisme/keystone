@@ -74,7 +74,7 @@ func Open(cfg NodeOptions) (*Node, error) {
 		cfg.HeartbeatTick = 1
 	}
 	if cfg.SnapshotThreshold == 0 {
-		cfg.SnapshotThreshold = 10000
+		cfg.SnapshotThreshold = 100000
 	}
 	if cfg.Rand == nil {
 		cfg.Rand = rand.New(rand.NewSource(time.Now().UnixNano() ^ int64(cfg.ID)))

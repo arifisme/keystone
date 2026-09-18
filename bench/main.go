@@ -157,11 +157,14 @@ func runWorkload(o runOptions) Result {
 		mode = pb.ReadMode_LOG
 	}
 
+	// The first seconds cover connection setup and leader hints; they are
+	// not measured.
+	const warmup = 2 * time.Second
 	var wg sync.WaitGroup
 	samples := make([][]time.Duration, o.clients)
 	errs := make([]int, o.clients)
-	stop := time.Now().Add(o.duration)
-	start := time.Now()
+	start := time.Now().Add(warmup)
+	stop := start.Add(o.duration)
 	for i := 0; i < o.clients; i++ {
 		wg.Add(1)
 		go func(i int) {
@@ -186,7 +189,9 @@ func runWorkload(o runOptions) Result {
 					errs[i]++
 					continue
 				}
-				samples[i] = append(samples[i], time.Since(t))
+				if t.After(start) {
+					samples[i] = append(samples[i], time.Since(t))
+				}
 			}
 		}(i)
 	}
