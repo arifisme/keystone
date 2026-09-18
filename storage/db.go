@@ -426,7 +426,9 @@ func (it *dbIter) Close() error {
 			it.err = err
 		}
 		it.m = nil
-		it.v.unref()
+		if it.v != nil {
+			it.v.unref()
+		}
 	}
 	return it.err
 }
@@ -571,9 +573,14 @@ func (d *db) Export(w io.Writer) error {
 	for _, t := range v.tables {
 		children = append(children, t.iter())
 	}
-	m := newMergeIter(children)
+	return exportIter(newMergeIter(children), seq, w, d.opts.BlockSize)
+}
+
+// exportIter writes the versions visible at seq as one table: newest
+// version per key, tombstones dropped.
+func exportIter(m internalIter, seq uint64, w io.Writer, blockSize int) error {
 	defer m.close()
-	tw := newStreamWriter(w, d.opts.BlockSize)
+	tw := newStreamWriter(w, blockSize)
 	var last []byte
 	for m.seekToFirst(); m.valid(); m.next() {
 		user, s, kind := splitInternalKey(m.key())
@@ -591,7 +598,7 @@ func (d *db) Export(w io.Writer) error {
 	if err := m.close(); err != nil {
 		return err
 	}
-	_, err = tw.finish()
+	_, err := tw.finish()
 	return err
 }
 

@@ -2,6 +2,7 @@ package storage
 
 import (
 	"bufio"
+	"bytes"
 	"encoding/binary"
 	"errors"
 	"fmt"
@@ -192,7 +193,10 @@ func (w *tableWriter) abort() {
 // unlink the file while iterators are still reading it.
 type table struct {
 	meta  tableMeta
-	f     *os.File
+	r     io.ReaderAt
+	size  int64
+	path  string
+	close func() error
 	index []byte
 	bloom bloomFilter
 	refs  atomic.Int32
@@ -204,7 +208,12 @@ func openTable(path string, meta tableMeta) (*table, error) {
 	if err != nil {
 		return nil, err
 	}
-	t := &table{meta: meta, f: f}
+	info, err := f.Stat()
+	if err != nil {
+		f.Close()
+		return nil, err
+	}
+	t := &table{meta: meta, r: f, size: info.Size(), path: path, close: f.Close}
 	t.refs.Store(1)
 	if err := t.readFooter(); err != nil {
 		f.Close()
@@ -213,16 +222,22 @@ func openTable(path string, meta tableMeta) (*table, error) {
 	return t, nil
 }
 
-func (t *table) readFooter() error {
-	info, err := t.f.Stat()
-	if err != nil {
-		return err
+// openTableBytes reads a table held in memory, as produced by Export.
+func openTableBytes(b []byte) (*table, error) {
+	t := &table{r: bytes.NewReader(b), size: int64(len(b)), close: func() error { return nil }}
+	t.refs.Store(1)
+	if err := t.readFooter(); err != nil {
+		return nil, err
 	}
-	if info.Size() < footerSize {
+	return t, nil
+}
+
+func (t *table) readFooter() error {
+	if t.size < footerSize {
 		return errBadTable
 	}
 	var footer [footerSize]byte
-	if _, err := t.f.ReadAt(footer[:], info.Size()-footerSize); err != nil {
+	if _, err := t.r.ReadAt(footer[:], t.size-footerSize); err != nil {
 		return err
 	}
 	if binary.LittleEndian.Uint32(footer[36:]) != tableMagic {
@@ -233,9 +248,11 @@ func (t *table) readFooter() error {
 	}
 	indexHandle := blockHandle{binary.LittleEndian.Uint64(footer[0:]), binary.LittleEndian.Uint64(footer[8:])}
 	bloomHandle := blockHandle{binary.LittleEndian.Uint64(footer[16:]), binary.LittleEndian.Uint64(footer[24:])}
-	if t.index, err = t.readBlock(indexHandle); err != nil {
+	index, err := t.readBlock(indexHandle)
+	if err != nil {
 		return err
 	}
+	t.index = index
 	bloom, err := t.readBlock(bloomHandle)
 	if err != nil {
 		return err
@@ -246,7 +263,7 @@ func (t *table) readFooter() error {
 
 func (t *table) readBlock(h blockHandle) ([]byte, error) {
 	buf := make([]byte, h.size+4)
-	if _, err := t.f.ReadAt(buf, int64(h.offset)); err != nil {
+	if _, err := t.r.ReadAt(buf, int64(h.offset)); err != nil {
 		if err == io.EOF {
 			return nil, errBadTable
 		}
@@ -268,10 +285,9 @@ func (t *table) unref() {
 	if t.refs.Add(-1) != 0 {
 		return
 	}
-	name := t.f.Name()
-	t.f.Close()
-	if t.gone.Load() {
-		os.Remove(name)
+	t.close()
+	if t.gone.Load() && t.path != "" {
+		os.Remove(t.path)
 	}
 }
 

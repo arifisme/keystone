@@ -463,3 +463,51 @@ func TestDBExportOfEmptyDatabaseRestoresEmpty(t *testing.T) {
 	}
 	checkOracle(t, dst, map[string][]byte{})
 }
+
+func TestMemoryDBMatchesOracleAndSnapshotsInterchangeWithDisk(t *testing.T) {
+	rng := rand.New(rand.NewSource(9))
+	m := NewMemory(9)
+	defer m.Close()
+	oracle := map[string][]byte{}
+	for i := 0; i < 20000; i++ {
+		key := fmt.Sprintf("k%03d", rng.Intn(500))
+		if rng.Intn(4) == 0 {
+			m.Delete([]byte(key))
+			delete(oracle, key)
+			continue
+		}
+		v := []byte(fmt.Sprint(i))
+		m.Put([]byte(key), v)
+		oracle[key] = v
+	}
+	checkOracle(t, m, oracle)
+
+	var buf bytes.Buffer
+	if err := m.Export(&buf); err != nil {
+		t.Fatal(err)
+	}
+	disk, err := Open(t.TempDir(), Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer disk.Close()
+	if err := disk.Restore(bytes.NewReader(buf.Bytes())); err != nil {
+		t.Fatal(err)
+	}
+	checkOracle(t, disk, oracle)
+
+	disk.Put([]byte("k000"), []byte("from disk"))
+	oracle["k000"] = []byte("from disk")
+	buf.Reset()
+	disk.Export(&buf)
+	back := NewMemory(1)
+	defer back.Close()
+	back.Put([]byte("zzz"), []byte("gone"))
+	if err := back.Restore(&buf); err != nil {
+		t.Fatal(err)
+	}
+	checkOracle(t, back, oracle)
+	back.Put([]byte("k000"), []byte("newer"))
+	oracle["k000"] = []byte("newer")
+	checkOracle(t, back, oracle)
+}
