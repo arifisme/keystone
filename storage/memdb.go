@@ -111,6 +111,10 @@ func (d *memDB) Restore(r io.Reader) error {
 	return nil
 }
 
+func (d *memDB) Stats() Stats {
+	return Stats{}
+}
+
 func (d *memDB) Close() error {
 	d.mu.Lock()
 	defer d.mu.Unlock()

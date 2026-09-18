@@ -26,6 +26,15 @@ type Options struct {
 	BlockSize    int
 	Sync         SyncPolicy
 	Rand         *rand.Rand
+	// OnSync, if set, is told how long each WAL fsync took.
+	OnSync func(time.Duration)
+}
+
+// Stats counts background work since the engine was opened.
+type Stats struct {
+	Flushes     uint64
+	Compactions uint64
+	Tables      int
 }
 
 func (o Options) withDefaults() Options {
@@ -54,6 +63,7 @@ type DB interface {
 	Export(w io.Writer) error
 	// Restore replaces the contents with an SSTable produced by Export.
 	Restore(r io.Reader) error
+	Stats() Stats
 	Close() error
 }
 
@@ -83,7 +93,9 @@ type db struct {
 	bgErr   error
 	bgCond  *sync.Cond
 
-	seq atomic.Uint64
+	seq         atomic.Uint64
+	flushes     atomic.Uint64
+	compactions atomic.Uint64
 
 	wmu    sync.Mutex
 	wcond  *sync.Cond
@@ -134,7 +146,7 @@ func Open(dir string, opts Options) (DB, error) {
 
 	var recovered []*memtable
 	var cur *memtable
-	wal, err := OpenWAL(dir, WALOptions{SegmentSize: opts.MemtableSize * 4, Sync: opts.Sync}, func(seg uint64, payload []byte) error {
+	wal, err := OpenWAL(dir, WALOptions{SegmentSize: opts.MemtableSize * 4, Sync: opts.Sync, OnSync: opts.OnSync}, func(seg uint64, payload []byte) error {
 		if seg < man.logNum {
 			return nil
 		}
@@ -506,7 +518,14 @@ func (d *db) flush(m *memtable) error {
 	if t != nil {
 		t.unref()
 	}
+	d.flushes.Add(1)
 	return d.wal.DeleteBefore(m.seg + 1)
+}
+
+func (d *db) Stats() Stats {
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+	return Stats{Flushes: d.flushes.Load(), Compactions: d.compactions.Load(), Tables: len(d.current.tables)}
 }
 
 // writeTable drains it into a new SSTable keeping the newest version of

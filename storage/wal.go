@@ -31,6 +31,8 @@ type WALOptions struct {
 	// SegmentSize is the size at which Append starts a new segment file.
 	SegmentSize int64
 	Sync        SyncPolicy
+	// OnSync, if set, is told how long each fsync took.
+	OnSync func(time.Duration)
 }
 
 var castagnoli = crc32.MakeTable(crc32.Castagnoli)
@@ -246,9 +248,13 @@ func (w *WAL) syncLocked() error {
 	if !w.dirty {
 		return w.syncErr
 	}
+	start := time.Now()
 	if err := w.file.Sync(); err != nil {
 		w.syncErr = fmt.Errorf("wal sync: %w", err)
 		return w.syncErr
+	}
+	if w.opts.OnSync != nil {
+		w.opts.OnSync(time.Since(start))
 	}
 	w.dirty = false
 	return nil

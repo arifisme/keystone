@@ -16,6 +16,9 @@ type NodeConfig struct {
 	// SnapshotThreshold is how many applied entries the log may hold
 	// before it is compacted into a snapshot. Zero disables snapshots.
 	SnapshotThreshold uint64
+	// MaxProposalBatch caps how many queued proposals one Flush appends
+	// together. Zero means all of them.
+	MaxProposalBatch int
 }
 
 // Proposal is one client entry on its way through the log. Done closes
@@ -58,14 +61,15 @@ const applyBatch = 256
 // synchronous and safe for concurrent use; Run calls them from one
 // goroutine in production, the simulator calls them directly.
 type Node struct {
-	mu      sync.Mutex
-	r       *Raft
-	sm      StateMachine
-	store   LogStore
-	tr      Transport
-	clock   Clock
-	tick    time.Duration
-	snapGap uint64
+	mu       sync.Mutex
+	r        *Raft
+	sm       StateMachine
+	store    LogStore
+	tr       Transport
+	clock    Clock
+	tick     time.Duration
+	snapGap  uint64
+	maxBatch int
 
 	applied uint64
 	queue   []*Proposal
@@ -86,18 +90,19 @@ func NewNode(cfg NodeConfig) (*Node, error) {
 		return nil, err
 	}
 	n := &Node{
-		r:       r,
-		sm:      cfg.StateMachine,
-		store:   cfg.Store,
-		tr:      cfg.Transport,
-		clock:   cfg.Clock,
-		tick:    cfg.TickInterval,
-		snapGap: cfg.SnapshotThreshold,
-		pending: make(map[uint64]*Proposal),
-		reads:   make(map[uint64][]*Read),
-		wake:    make(chan struct{}, 1),
-		stop:    make(chan struct{}),
-		done:    make(chan struct{}),
+		r:        r,
+		sm:       cfg.StateMachine,
+		store:    cfg.Store,
+		tr:       cfg.Transport,
+		clock:    cfg.Clock,
+		tick:     cfg.TickInterval,
+		snapGap:  cfg.SnapshotThreshold,
+		maxBatch: cfg.MaxProposalBatch,
+		pending:  make(map[uint64]*Proposal),
+		reads:    make(map[uint64][]*Read),
+		wake:     make(chan struct{}, 1),
+		stop:     make(chan struct{}),
+		done:     make(chan struct{}),
 	}
 	n.applied = n.sm.LastApplied()
 	snapIdx, _, data, err := n.store.Snapshot()
@@ -195,11 +200,17 @@ func (n *Node) Flush() {
 }
 
 func (n *Node) flushProposals() {
-	if len(n.queue) == 0 {
-		return
+	for len(n.queue) > 0 {
+		n.flushBatch()
 	}
+}
+
+func (n *Node) flushBatch() {
 	queue := n.queue
-	n.queue = nil
+	if n.maxBatch > 0 && len(queue) > n.maxBatch {
+		queue = queue[:n.maxBatch]
+	}
+	n.queue = n.queue[len(queue):]
 	if n.r.state != Leader {
 		for _, p := range queue {
 			p.finish(nil, ErrNotLeader)

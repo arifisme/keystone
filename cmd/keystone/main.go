@@ -22,6 +22,7 @@ func main() {
 	groups := flag.String("groups", "", "raft groups as group:id,id,...;group:... (default: one group of every peer); group 1 is the meta group when sharded")
 	dir := flag.String("data", "", "data directory")
 	addr := flag.String("addr", "", "listen address (default: this node's -peers entry)")
+	metrics := flag.String("metrics", "", "address for /metrics and /debug/pprof (off when empty)")
 	flag.Parse()
 
 	peerMap, err := parsePeers(*peers)
@@ -41,7 +42,7 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	n, err := kv.Open(kv.NodeOptions{ID: raft.NodeID(*id), Peers: peerMap, Groups: groupMap, Dir: *dir, Addr: *addr})
+	n, err := kv.Open(kv.NodeOptions{ID: raft.NodeID(*id), Peers: peerMap, Groups: groupMap, Dir: *dir, Addr: *addr, MetricsAddr: *metrics})
 	if err != nil {
 		log.Fatal(err)
 	}

@@ -119,6 +119,7 @@ func (d *db) compactLocked(inputs []*table) error {
 	if out != nil {
 		out.unref()
 	}
+	d.compactions.Add(1)
 	return nil
 }
 

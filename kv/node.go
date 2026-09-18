@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"math/rand"
 	"net"
+	"net/http"
 	"path/filepath"
 	"sort"
 	"time"
@@ -24,6 +25,8 @@ type Node struct {
 	transport *Transport
 	grpc      *grpc.Server
 	lis       net.Listener
+	metrics   *metrics
+	http      *http.Server
 }
 
 // Group is one Raft group's replica on this node.
@@ -45,12 +48,17 @@ type NodeOptions struct {
 	// Addr is the listen address; the entry in Peers for ID is what other
 	// nodes and clients dial, which may differ behind NAT or Docker.
 	Addr string
-	Rand *rand.Rand
+	// MetricsAddr serves Prometheus metrics and pprof when set.
+	MetricsAddr string
+	Rand        *rand.Rand
 
 	TickInterval      time.Duration
 	ElectionTick      int
 	HeartbeatTick     int
 	SnapshotThreshold uint64
+	// MaxProposalBatch caps how many queued proposals share one log
+	// append; zero means no cap.
+	MaxProposalBatch int
 }
 
 // Open prepares every hosted group and the listener. Nothing is served
@@ -72,6 +80,7 @@ func Open(cfg NodeOptions) (*Node, error) {
 		cfg.Rand = rand.New(rand.NewSource(time.Now().UnixNano() ^ int64(cfg.ID)))
 	}
 	n := &Node{cfg: cfg, groups: map[uint64]*Group{}, transport: NewTransport(cfg.ID, cfg.Peers)}
+	n.metrics = newMetrics(n)
 	for _, id := range sortedGroups(cfg.Groups) {
 		members := cfg.Groups[id]
 		if !contains(members, cfg.ID) {
@@ -96,15 +105,30 @@ func Open(cfg NodeOptions) (*Node, error) {
 		return nil, err
 	}
 	n.lis = lis
-	n.grpc = grpc.NewServer()
+	n.grpc = grpc.NewServer(grpc.UnaryInterceptor(n.metrics.interceptor()))
 	n.transport.Register(n.grpc)
+	if cfg.MetricsAddr != "" {
+		mlis, err := net.Listen("tcp", cfg.MetricsAddr)
+		if err != nil {
+			lis.Close()
+			n.closeGroups()
+			n.transport.Close()
+			return nil, err
+		}
+		n.http = &http.Server{Handler: n.metrics.handler()}
+		go n.http.Serve(mlis)
+	}
 	return n, nil
 }
 
 func (n *Node) openGroup(id uint64, members []raft.NodeID) (*Group, error) {
 	cfg := n.cfg
 	dir := filepath.Join(cfg.Dir, fmt.Sprintf("g%d", id))
-	db, err := storage.Open(filepath.Join(dir, "kv"), storage.Options{Sync: storage.SyncInterval(50 * time.Millisecond), Rand: cfg.Rand})
+	db, err := storage.Open(filepath.Join(dir, "kv"), storage.Options{
+		Sync:   storage.SyncInterval(50 * time.Millisecond),
+		Rand:   cfg.Rand,
+		OnSync: func(d time.Duration) { n.metrics.fsync.Observe(d.Seconds()) },
+	})
 	if err != nil {
 		return nil, fmt.Errorf("open engine: %w", err)
 	}
@@ -135,6 +159,7 @@ func (n *Node) openGroup(id uint64, members []raft.NodeID) (*Group, error) {
 		Clock:             raft.SystemClock{},
 		TickInterval:      cfg.TickInterval,
 		SnapshotThreshold: cfg.SnapshotThreshold,
+		MaxProposalBatch:  cfg.MaxProposalBatch,
 	})
 	if err != nil {
 		log.Close()
@@ -150,6 +175,7 @@ func (n *Node) Serve(service pb.KVServer) {
 	for _, g := range n.groups {
 		go g.raft.Run()
 	}
+	go n.metrics.monitor()
 	go n.grpc.Serve(n.lis)
 }
 
@@ -181,6 +207,10 @@ func (g *Group) Status() raft.Status {
 
 func (n *Node) Stop() error {
 	n.grpc.Stop()
+	if n.http != nil {
+		n.http.Close()
+	}
+	close(n.metrics.stop)
 	for _, g := range n.groups {
 		g.raft.Stop()
 	}
