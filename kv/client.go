@@ -41,17 +41,26 @@ type ClientOptions struct {
 
 var ErrNoEndpoints = errors.New("kv: no endpoints")
 
-// Dial registers a session with the cluster. It retries until ctx ends.
-func Dial(ctx context.Context, endpoints []string, opts ClientOptions) (*Client, error) {
+// NewClient prepares a client with no session. Only Do is usable on it;
+// routers forward requests that carry the caller's session this way.
+func NewClient(endpoints []string, opts ClientOptions) (*Client, error) {
 	if len(endpoints) == 0 {
 		return nil, ErrNoEndpoints
 	}
 	if opts.AttemptTimeout <= 0 {
 		opts.AttemptTimeout = 2 * time.Second
 	}
-	c := &Client{endpoints: endpoints, attempt: opts.AttemptTimeout, group: opts.Group, conns: map[string]*grpc.ClientConn{}}
+	return &Client{endpoints: endpoints, attempt: opts.AttemptTimeout, group: opts.Group, conns: map[string]*grpc.ClientConn{}}, nil
+}
+
+// Dial registers a session with the cluster. It retries until ctx ends.
+func Dial(ctx context.Context, endpoints []string, opts ClientOptions) (*Client, error) {
+	c, err := NewClient(endpoints, opts)
+	if err != nil {
+		return nil, err
+	}
 	var id uint64
-	err := c.Do(ctx, func(ctx context.Context, cli pb.KVClient) error {
+	err = c.Do(ctx, func(ctx context.Context, cli pb.KVClient) error {
 		res, err := cli.RegisterClient(ctx, &pb.RegisterRequest{Group: c.group})
 		if err != nil {
 			return err
