@@ -25,6 +25,9 @@ const (
 	KV_Delete_FullMethodName         = "/keystone.KV/Delete"
 	KV_Cas_FullMethodName            = "/keystone.KV/Cas"
 	KV_Scan_FullMethodName           = "/keystone.KV/Scan"
+	KV_Admin_FullMethodName          = "/keystone.KV/Admin"
+	KV_MoveShard_FullMethodName      = "/keystone.KV/MoveShard"
+	KV_GetShardMap_FullMethodName    = "/keystone.KV/GetShardMap"
 )
 
 // KVClient is the client API for KV service.
@@ -37,6 +40,9 @@ type KVClient interface {
 	Delete(ctx context.Context, in *DeleteRequest, opts ...grpc.CallOption) (*DeleteResponse, error)
 	Cas(ctx context.Context, in *CasRequest, opts ...grpc.CallOption) (*CasResponse, error)
 	Scan(ctx context.Context, in *ScanRequest, opts ...grpc.CallOption) (*ScanResponse, error)
+	Admin(ctx context.Context, in *AdminRequest, opts ...grpc.CallOption) (*AdminResponse, error)
+	MoveShard(ctx context.Context, in *MoveShardRequest, opts ...grpc.CallOption) (*MoveShardResponse, error)
+	GetShardMap(ctx context.Context, in *ShardMapRequest, opts ...grpc.CallOption) (*ShardMap, error)
 }
 
 type kVClient struct {
@@ -107,6 +113,36 @@ func (c *kVClient) Scan(ctx context.Context, in *ScanRequest, opts ...grpc.CallO
 	return out, nil
 }
 
+func (c *kVClient) Admin(ctx context.Context, in *AdminRequest, opts ...grpc.CallOption) (*AdminResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(AdminResponse)
+	err := c.cc.Invoke(ctx, KV_Admin_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *kVClient) MoveShard(ctx context.Context, in *MoveShardRequest, opts ...grpc.CallOption) (*MoveShardResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(MoveShardResponse)
+	err := c.cc.Invoke(ctx, KV_MoveShard_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *kVClient) GetShardMap(ctx context.Context, in *ShardMapRequest, opts ...grpc.CallOption) (*ShardMap, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ShardMap)
+	err := c.cc.Invoke(ctx, KV_GetShardMap_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // KVServer is the server API for KV service.
 // All implementations must embed UnimplementedKVServer
 // for forward compatibility.
@@ -117,6 +153,9 @@ type KVServer interface {
 	Delete(context.Context, *DeleteRequest) (*DeleteResponse, error)
 	Cas(context.Context, *CasRequest) (*CasResponse, error)
 	Scan(context.Context, *ScanRequest) (*ScanResponse, error)
+	Admin(context.Context, *AdminRequest) (*AdminResponse, error)
+	MoveShard(context.Context, *MoveShardRequest) (*MoveShardResponse, error)
+	GetShardMap(context.Context, *ShardMapRequest) (*ShardMap, error)
 	mustEmbedUnimplementedKVServer()
 }
 
@@ -144,6 +183,15 @@ func (UnimplementedKVServer) Cas(context.Context, *CasRequest) (*CasResponse, er
 }
 func (UnimplementedKVServer) Scan(context.Context, *ScanRequest) (*ScanResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method Scan not implemented")
+}
+func (UnimplementedKVServer) Admin(context.Context, *AdminRequest) (*AdminResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method Admin not implemented")
+}
+func (UnimplementedKVServer) MoveShard(context.Context, *MoveShardRequest) (*MoveShardResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method MoveShard not implemented")
+}
+func (UnimplementedKVServer) GetShardMap(context.Context, *ShardMapRequest) (*ShardMap, error) {
+	return nil, status.Error(codes.Unimplemented, "method GetShardMap not implemented")
 }
 func (UnimplementedKVServer) mustEmbedUnimplementedKVServer() {}
 func (UnimplementedKVServer) testEmbeddedByValue()            {}
@@ -274,6 +322,60 @@ func _KV_Scan_Handler(srv interface{}, ctx context.Context, dec func(interface{}
 	return interceptor(ctx, in, info, handler)
 }
 
+func _KV_Admin_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(AdminRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(KVServer).Admin(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: KV_Admin_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(KVServer).Admin(ctx, req.(*AdminRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _KV_MoveShard_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(MoveShardRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(KVServer).MoveShard(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: KV_MoveShard_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(KVServer).MoveShard(ctx, req.(*MoveShardRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _KV_GetShardMap_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ShardMapRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(KVServer).GetShardMap(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: KV_GetShardMap_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(KVServer).GetShardMap(ctx, req.(*ShardMapRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // KV_ServiceDesc is the grpc.ServiceDesc for KV service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -304,6 +406,18 @@ var KV_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "Scan",
 			Handler:    _KV_Scan_Handler,
+		},
+		{
+			MethodName: "Admin",
+			Handler:    _KV_Admin_Handler,
+		},
+		{
+			MethodName: "MoveShard",
+			Handler:    _KV_MoveShard_Handler,
+		},
+		{
+			MethodName: "GetShardMap",
+			Handler:    _KV_GetShardMap_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

@@ -1,0 +1,15 @@
+{
+  "name": "put-batched-n5-v10240",
+  "nodes": 5,
+  "op": "put",
+  "value_size": 10240,
+  "clients": 64,
+  "batched": true,
+  "duration": 11246342937,
+  "ops": 10001,
+  "errors": 0,
+  "throughput": 889.2668537696043,
+  "p50": 41740114,
+  "p99": 858449420,
+  "p999": 2388869474
+}

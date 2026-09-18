@@ -1,0 +1,16 @@
+{
+  "name": "get-log-n3-v1024",
+  "nodes": 3,
+  "op": "get",
+  "read": "log",
+  "value_size": 1024,
+  "clients": 64,
+  "batched": true,
+  "duration": 10014495929,
+  "ops": 28799,
+  "errors": 0,
+  "throughput": 2875.7313602378917,
+  "p50": 17015119,
+  "p99": 166538953,
+  "p999": 298035784
+}

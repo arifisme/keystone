@@ -3,12 +3,14 @@ package kv
 import (
 	"bytes"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"io"
 	"sync"
 
 	"google.golang.org/protobuf/proto"
 
+	"github.com/arifisme/keystone/internal/keyhash"
 	"github.com/arifisme/keystone/proto"
 	"github.com/arifisme/keystone/raft"
 	"github.com/arifisme/keystone/storage"
@@ -19,6 +21,7 @@ import (
 //	'k' user key            value
 //	's' client id (8 bytes) seq (8 bytes) | cached Result
 //	'm' "applied"           last applied index (8 bytes)
+//	'm' "shard/" + n        shard state: 1 frozen, 2 gone
 //
 // Every Apply writes its effects, the session update and the applied
 // index in one batch, so a crash can never leave the state machine
@@ -37,12 +40,23 @@ type session struct {
 	result []byte
 }
 
+// shardState is what this group may do with a shard's keys. A shard this
+// group has never heard of is open.
+type shardState byte
+
+const (
+	shardOpen   shardState = 0
+	shardFrozen shardState = 1
+	shardGone   shardState = 2
+)
+
 type StateMachine struct {
 	db storage.DB
 
 	mu       sync.Mutex
 	applied  uint64
 	sessions map[uint64]session
+	shards   map[int]shardState
 }
 
 func NewStateMachine(db storage.DB) (*StateMachine, error) {
@@ -53,8 +67,13 @@ func NewStateMachine(db storage.DB) (*StateMachine, error) {
 	return s, nil
 }
 
+func shardKey(shard int) []byte {
+	return []byte(fmt.Sprintf("mshard/%02d", shard))
+}
+
 func (s *StateMachine) load() error {
 	s.sessions = map[uint64]session{}
+	s.shards = map[int]shardState{}
 	s.applied = 0
 	v, err := s.db.Get(appliedKey)
 	if err == nil {
@@ -67,7 +86,31 @@ func (s *StateMachine) load() error {
 		id := binary.BigEndian.Uint64(it.Key()[1:])
 		s.sessions[id] = decodeSession(it.Value())
 	}
+	if err := it.Close(); err != nil {
+		return err
+	}
+	it = s.db.Scan([]byte("mshard/"), []byte("mshard0"))
+	for it.Next() {
+		var shard int
+		fmt.Sscanf(string(it.Key()[len("mshard/"):]), "%d", &shard)
+		s.shards[shard] = shardState(it.Value()[0])
+	}
 	return it.Close()
+}
+
+func (s *StateMachine) setShard(batch *storage.Batch, shard int, state shardState) {
+	batch.Put(shardKey(shard), []byte{byte(state)})
+	s.shards[shard] = state
+}
+
+// writable reports whether a key's shard accepts writes here.
+func (s *StateMachine) writable(key []byte) bool {
+	return s.shards[keyhash.ShardOf(key)] == shardOpen
+}
+
+// readable reports whether a key's shard still holds data here.
+func (s *StateMachine) readable(key []byte) bool {
+	return s.shards[keyhash.ShardOf(key)] != shardGone
 }
 
 func userKey(key []byte) []byte {
@@ -137,12 +180,24 @@ func (s *StateMachine) execute(cmd *pb.Command, index uint64, batch *storage.Bat
 	case *pb.Command_Register:
 		res.ClientId = index
 	case *pb.Command_Put:
+		if !s.writable(op.Put.Key) {
+			res.Moving = true
+			break
+		}
 		batch.Put(userKey(op.Put.Key), op.Put.Value)
 		res.Success = true
 	case *pb.Command_Delete:
+		if !s.writable(op.Delete.Key) {
+			res.Moving = true
+			break
+		}
 		batch.Delete(userKey(op.Delete.Key))
 		res.Success = true
 	case *pb.Command_Cas:
+		if !s.writable(op.Cas.Key) {
+			res.Moving = true
+			break
+		}
 		cur, found, err := s.get(op.Cas.Key)
 		if err != nil {
 			panic(fmt.Sprintf("kv: cas read: %v", err))
@@ -157,6 +212,10 @@ func (s *StateMachine) execute(cmd *pb.Command, index uint64, batch *storage.Bat
 			batch.Put(userKey(op.Cas.Key), op.Cas.Value)
 		}
 	case *pb.Command_Get:
+		if !s.readable(op.Get.Key) {
+			res.Moving = true
+			break
+		}
 		cur, found, err := s.get(op.Get.Key)
 		if err != nil {
 			panic(fmt.Sprintf("kv: get: %v", err))
@@ -168,6 +227,30 @@ func (s *StateMachine) execute(cmd *pb.Command, index uint64, batch *storage.Bat
 			panic(fmt.Sprintf("kv: scan: %v", err))
 		}
 		res.Kvs = kvs
+	case *pb.Command_Freeze:
+		s.setShard(batch, int(op.Freeze.Shard), shardFrozen)
+		res.Success = true
+	case *pb.Command_Import:
+		for _, kv := range op.Import.Kvs {
+			batch.Put(userKey(kv.Key), kv.Value)
+		}
+		if op.Import.Last {
+			s.setShard(batch, int(op.Import.Shard), shardOpen)
+		}
+		res.Success = true
+	case *pb.Command_Purge:
+		shard := int(op.Purge.Shard)
+		it := s.db.Scan([]byte{prefixKey}, []byte{prefixKey + 1})
+		for it.Next() {
+			if keyhash.ShardOf(it.Key()[1:]) == shard {
+				batch.Delete(append([]byte(nil), it.Key()...))
+			}
+		}
+		if err := it.Close(); err != nil {
+			panic(fmt.Sprintf("kv: purge: %v", err))
+		}
+		s.setShard(batch, shard, shardGone)
+		res.Success = true
 	}
 	return res
 }
@@ -197,10 +280,19 @@ func (s *StateMachine) scan(start, end []byte, limit int) ([]*pb.KeyValue, error
 }
 
 // Get serves a read outside the log; the caller has confirmed through
-// ReadIndex that the state is current enough.
+// ReadIndex that the state is current enough. ErrMoving means the key's
+// shard has left this group.
 func (s *StateMachine) Get(key []byte) ([]byte, bool, error) {
+	s.mu.Lock()
+	readable := s.readable(key)
+	s.mu.Unlock()
+	if !readable {
+		return nil, false, ErrMoving
+	}
 	return s.get(key)
 }
+
+var ErrMoving = errors.New("kv: shard is moving")
 
 func (s *StateMachine) Scan(start, end []byte, limit int) ([]*pb.KeyValue, error) {
 	return s.scan(start, end, limit)

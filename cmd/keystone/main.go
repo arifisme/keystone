@@ -46,12 +46,13 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
+	var router *shard.Router
 	if len(groupMap) > 1 {
-		r, err := shard.NewRouter(n, groupMap)
+		router, err = shard.NewRouter(n, groupMap)
 		if err != nil {
 			log.Fatal(err)
 		}
-		n.Serve(r)
+		n.Serve(router)
 	} else {
 		n.Serve(n.Server())
 	}
@@ -60,6 +61,9 @@ func main() {
 	sig := make(chan os.Signal, 1)
 	signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM)
 	<-sig
+	if router != nil {
+		router.Close()
+	}
 	if err := n.Stop(); err != nil {
 		log.Fatal(err)
 	}

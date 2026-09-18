@@ -80,6 +80,9 @@ type Command struct {
 	//	*Command_Cas
 	//	*Command_Get
 	//	*Command_Scan
+	//	*Command_Freeze
+	//	*Command_Import
+	//	*Command_Purge
 	Op            isCommand_Op `protobuf_oneof:"op"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -190,6 +193,33 @@ func (x *Command) GetScan() *ScanOp {
 	return nil
 }
 
+func (x *Command) GetFreeze() *FreezeOp {
+	if x != nil {
+		if x, ok := x.Op.(*Command_Freeze); ok {
+			return x.Freeze
+		}
+	}
+	return nil
+}
+
+func (x *Command) GetImport() *ImportOp {
+	if x != nil {
+		if x, ok := x.Op.(*Command_Import); ok {
+			return x.Import
+		}
+	}
+	return nil
+}
+
+func (x *Command) GetPurge() *PurgeOp {
+	if x != nil {
+		if x, ok := x.Op.(*Command_Purge); ok {
+			return x.Purge
+		}
+	}
+	return nil
+}
+
 type isCommand_Op interface {
 	isCommand_Op()
 }
@@ -218,6 +248,18 @@ type Command_Scan struct {
 	Scan *ScanOp `protobuf:"bytes,8,opt,name=scan,proto3,oneof"`
 }
 
+type Command_Freeze struct {
+	Freeze *FreezeOp `protobuf:"bytes,9,opt,name=freeze,proto3,oneof"`
+}
+
+type Command_Import struct {
+	Import *ImportOp `protobuf:"bytes,10,opt,name=import,proto3,oneof"`
+}
+
+type Command_Purge struct {
+	Purge *PurgeOp `protobuf:"bytes,11,opt,name=purge,proto3,oneof"`
+}
+
 func (*Command_Register) isCommand_Op() {}
 
 func (*Command_Put) isCommand_Op() {}
@@ -230,6 +272,165 @@ func (*Command_Get) isCommand_Op() {}
 
 func (*Command_Scan) isCommand_Op() {}
 
+func (*Command_Freeze) isCommand_Op() {}
+
+func (*Command_Import) isCommand_Op() {}
+
+func (*Command_Purge) isCommand_Op() {}
+
+// FreezeOp stops writes to one shard in this group while it is copied
+// elsewhere.
+type FreezeOp struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Shard         uint32                 `protobuf:"varint,1,opt,name=shard,proto3" json:"shard,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *FreezeOp) Reset() {
+	*x = FreezeOp{}
+	mi := &file_kv_proto_msgTypes[1]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *FreezeOp) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*FreezeOp) ProtoMessage() {}
+
+func (x *FreezeOp) ProtoReflect() protoreflect.Message {
+	mi := &file_kv_proto_msgTypes[1]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use FreezeOp.ProtoReflect.Descriptor instead.
+func (*FreezeOp) Descriptor() ([]byte, []int) {
+	return file_kv_proto_rawDescGZIP(), []int{1}
+}
+
+func (x *FreezeOp) GetShard() uint32 {
+	if x != nil {
+		return x.Shard
+	}
+	return 0
+}
+
+// ImportOp loads a moved shard's keys into this group and takes ownership.
+type ImportOp struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Shard         uint32                 `protobuf:"varint,1,opt,name=shard,proto3" json:"shard,omitempty"`
+	Kvs           []*KeyValue            `protobuf:"bytes,2,rep,name=kvs,proto3" json:"kvs,omitempty"`
+	Last          bool                   `protobuf:"varint,3,opt,name=last,proto3" json:"last,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ImportOp) Reset() {
+	*x = ImportOp{}
+	mi := &file_kv_proto_msgTypes[2]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ImportOp) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ImportOp) ProtoMessage() {}
+
+func (x *ImportOp) ProtoReflect() protoreflect.Message {
+	mi := &file_kv_proto_msgTypes[2]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ImportOp.ProtoReflect.Descriptor instead.
+func (*ImportOp) Descriptor() ([]byte, []int) {
+	return file_kv_proto_rawDescGZIP(), []int{2}
+}
+
+func (x *ImportOp) GetShard() uint32 {
+	if x != nil {
+		return x.Shard
+	}
+	return 0
+}
+
+func (x *ImportOp) GetKvs() []*KeyValue {
+	if x != nil {
+		return x.Kvs
+	}
+	return nil
+}
+
+func (x *ImportOp) GetLast() bool {
+	if x != nil {
+		return x.Last
+	}
+	return false
+}
+
+// PurgeOp deletes a shard's keys after it has moved away; the shard stays
+// closed here so a stale router cannot write to it.
+type PurgeOp struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Shard         uint32                 `protobuf:"varint,1,opt,name=shard,proto3" json:"shard,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *PurgeOp) Reset() {
+	*x = PurgeOp{}
+	mi := &file_kv_proto_msgTypes[3]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *PurgeOp) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PurgeOp) ProtoMessage() {}
+
+func (x *PurgeOp) ProtoReflect() protoreflect.Message {
+	mi := &file_kv_proto_msgTypes[3]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PurgeOp.ProtoReflect.Descriptor instead.
+func (*PurgeOp) Descriptor() ([]byte, []int) {
+	return file_kv_proto_rawDescGZIP(), []int{3}
+}
+
+func (x *PurgeOp) GetShard() uint32 {
+	if x != nil {
+		return x.Shard
+	}
+	return 0
+}
+
 type RegisterOp struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	unknownFields protoimpl.UnknownFields
@@ -238,7 +439,7 @@ type RegisterOp struct {
 
 func (x *RegisterOp) Reset() {
 	*x = RegisterOp{}
-	mi := &file_kv_proto_msgTypes[1]
+	mi := &file_kv_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -250,7 +451,7 @@ func (x *RegisterOp) String() string {
 func (*RegisterOp) ProtoMessage() {}
 
 func (x *RegisterOp) ProtoReflect() protoreflect.Message {
-	mi := &file_kv_proto_msgTypes[1]
+	mi := &file_kv_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -263,7 +464,7 @@ func (x *RegisterOp) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RegisterOp.ProtoReflect.Descriptor instead.
 func (*RegisterOp) Descriptor() ([]byte, []int) {
-	return file_kv_proto_rawDescGZIP(), []int{1}
+	return file_kv_proto_rawDescGZIP(), []int{4}
 }
 
 type PutOp struct {
@@ -276,7 +477,7 @@ type PutOp struct {
 
 func (x *PutOp) Reset() {
 	*x = PutOp{}
-	mi := &file_kv_proto_msgTypes[2]
+	mi := &file_kv_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -288,7 +489,7 @@ func (x *PutOp) String() string {
 func (*PutOp) ProtoMessage() {}
 
 func (x *PutOp) ProtoReflect() protoreflect.Message {
-	mi := &file_kv_proto_msgTypes[2]
+	mi := &file_kv_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -301,7 +502,7 @@ func (x *PutOp) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PutOp.ProtoReflect.Descriptor instead.
 func (*PutOp) Descriptor() ([]byte, []int) {
-	return file_kv_proto_rawDescGZIP(), []int{2}
+	return file_kv_proto_rawDescGZIP(), []int{5}
 }
 
 func (x *PutOp) GetKey() []byte {
@@ -327,7 +528,7 @@ type DeleteOp struct {
 
 func (x *DeleteOp) Reset() {
 	*x = DeleteOp{}
-	mi := &file_kv_proto_msgTypes[3]
+	mi := &file_kv_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -339,7 +540,7 @@ func (x *DeleteOp) String() string {
 func (*DeleteOp) ProtoMessage() {}
 
 func (x *DeleteOp) ProtoReflect() protoreflect.Message {
-	mi := &file_kv_proto_msgTypes[3]
+	mi := &file_kv_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -352,7 +553,7 @@ func (x *DeleteOp) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeleteOp.ProtoReflect.Descriptor instead.
 func (*DeleteOp) Descriptor() ([]byte, []int) {
-	return file_kv_proto_rawDescGZIP(), []int{3}
+	return file_kv_proto_rawDescGZIP(), []int{6}
 }
 
 func (x *DeleteOp) GetKey() []byte {
@@ -375,7 +576,7 @@ type CasOp struct {
 
 func (x *CasOp) Reset() {
 	*x = CasOp{}
-	mi := &file_kv_proto_msgTypes[4]
+	mi := &file_kv_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -387,7 +588,7 @@ func (x *CasOp) String() string {
 func (*CasOp) ProtoMessage() {}
 
 func (x *CasOp) ProtoReflect() protoreflect.Message {
-	mi := &file_kv_proto_msgTypes[4]
+	mi := &file_kv_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -400,7 +601,7 @@ func (x *CasOp) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CasOp.ProtoReflect.Descriptor instead.
 func (*CasOp) Descriptor() ([]byte, []int) {
-	return file_kv_proto_rawDescGZIP(), []int{4}
+	return file_kv_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *CasOp) GetKey() []byte {
@@ -433,7 +634,7 @@ type GetOp struct {
 
 func (x *GetOp) Reset() {
 	*x = GetOp{}
-	mi := &file_kv_proto_msgTypes[5]
+	mi := &file_kv_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -445,7 +646,7 @@ func (x *GetOp) String() string {
 func (*GetOp) ProtoMessage() {}
 
 func (x *GetOp) ProtoReflect() protoreflect.Message {
-	mi := &file_kv_proto_msgTypes[5]
+	mi := &file_kv_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -458,7 +659,7 @@ func (x *GetOp) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetOp.ProtoReflect.Descriptor instead.
 func (*GetOp) Descriptor() ([]byte, []int) {
-	return file_kv_proto_rawDescGZIP(), []int{5}
+	return file_kv_proto_rawDescGZIP(), []int{8}
 }
 
 func (x *GetOp) GetKey() []byte {
@@ -479,7 +680,7 @@ type ScanOp struct {
 
 func (x *ScanOp) Reset() {
 	*x = ScanOp{}
-	mi := &file_kv_proto_msgTypes[6]
+	mi := &file_kv_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -491,7 +692,7 @@ func (x *ScanOp) String() string {
 func (*ScanOp) ProtoMessage() {}
 
 func (x *ScanOp) ProtoReflect() protoreflect.Message {
-	mi := &file_kv_proto_msgTypes[6]
+	mi := &file_kv_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -504,7 +705,7 @@ func (x *ScanOp) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ScanOp.ProtoReflect.Descriptor instead.
 func (*ScanOp) Descriptor() ([]byte, []int) {
-	return file_kv_proto_rawDescGZIP(), []int{6}
+	return file_kv_proto_rawDescGZIP(), []int{9}
 }
 
 func (x *ScanOp) GetStart() []byte {
@@ -538,7 +739,7 @@ type KeyValue struct {
 
 func (x *KeyValue) Reset() {
 	*x = KeyValue{}
-	mi := &file_kv_proto_msgTypes[7]
+	mi := &file_kv_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -550,7 +751,7 @@ func (x *KeyValue) String() string {
 func (*KeyValue) ProtoMessage() {}
 
 func (x *KeyValue) ProtoReflect() protoreflect.Message {
-	mi := &file_kv_proto_msgTypes[7]
+	mi := &file_kv_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -563,7 +764,7 @@ func (x *KeyValue) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use KeyValue.ProtoReflect.Descriptor instead.
 func (*KeyValue) Descriptor() ([]byte, []int) {
-	return file_kv_proto_rawDescGZIP(), []int{7}
+	return file_kv_proto_rawDescGZIP(), []int{10}
 }
 
 func (x *KeyValue) GetKey() []byte {
@@ -583,19 +784,21 @@ func (x *KeyValue) GetValue() []byte {
 // Result is what applying a Command produced. It is cached per session so
 // a retried command returns the same answer.
 type Result struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Found         bool                   `protobuf:"varint,1,opt,name=found,proto3" json:"found,omitempty"`
-	Value         []byte                 `protobuf:"bytes,2,opt,name=value,proto3" json:"value,omitempty"`
-	Success       bool                   `protobuf:"varint,3,opt,name=success,proto3" json:"success,omitempty"`
-	ClientId      uint64                 `protobuf:"varint,4,opt,name=client_id,json=clientId,proto3" json:"client_id,omitempty"`
-	Kvs           []*KeyValue            `protobuf:"bytes,5,rep,name=kvs,proto3" json:"kvs,omitempty"`
+	state    protoimpl.MessageState `protogen:"open.v1"`
+	Found    bool                   `protobuf:"varint,1,opt,name=found,proto3" json:"found,omitempty"`
+	Value    []byte                 `protobuf:"bytes,2,opt,name=value,proto3" json:"value,omitempty"`
+	Success  bool                   `protobuf:"varint,3,opt,name=success,proto3" json:"success,omitempty"`
+	ClientId uint64                 `protobuf:"varint,4,opt,name=client_id,json=clientId,proto3" json:"client_id,omitempty"`
+	Kvs      []*KeyValue            `protobuf:"bytes,5,rep,name=kvs,proto3" json:"kvs,omitempty"`
+	// moving reports that the key's shard is not writable here right now.
+	Moving        bool `protobuf:"varint,6,opt,name=moving,proto3" json:"moving,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *Result) Reset() {
 	*x = Result{}
-	mi := &file_kv_proto_msgTypes[8]
+	mi := &file_kv_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -607,7 +810,7 @@ func (x *Result) String() string {
 func (*Result) ProtoMessage() {}
 
 func (x *Result) ProtoReflect() protoreflect.Message {
-	mi := &file_kv_proto_msgTypes[8]
+	mi := &file_kv_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -620,7 +823,7 @@ func (x *Result) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Result.ProtoReflect.Descriptor instead.
 func (*Result) Descriptor() ([]byte, []int) {
-	return file_kv_proto_rawDescGZIP(), []int{8}
+	return file_kv_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *Result) GetFound() bool {
@@ -658,6 +861,13 @@ func (x *Result) GetKvs() []*KeyValue {
 	return nil
 }
 
+func (x *Result) GetMoving() bool {
+	if x != nil {
+		return x.Moving
+	}
+	return false
+}
+
 type Session struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	ClientId      uint64                 `protobuf:"varint,1,opt,name=client_id,json=clientId,proto3" json:"client_id,omitempty"`
@@ -668,7 +878,7 @@ type Session struct {
 
 func (x *Session) Reset() {
 	*x = Session{}
-	mi := &file_kv_proto_msgTypes[9]
+	mi := &file_kv_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -680,7 +890,7 @@ func (x *Session) String() string {
 func (*Session) ProtoMessage() {}
 
 func (x *Session) ProtoReflect() protoreflect.Message {
-	mi := &file_kv_proto_msgTypes[9]
+	mi := &file_kv_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -693,7 +903,7 @@ func (x *Session) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Session.ProtoReflect.Descriptor instead.
 func (*Session) Descriptor() ([]byte, []int) {
-	return file_kv_proto_rawDescGZIP(), []int{9}
+	return file_kv_proto_rawDescGZIP(), []int{12}
 }
 
 func (x *Session) GetClientId() uint64 {
@@ -721,7 +931,7 @@ type RegisterRequest struct {
 
 func (x *RegisterRequest) Reset() {
 	*x = RegisterRequest{}
-	mi := &file_kv_proto_msgTypes[10]
+	mi := &file_kv_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -733,7 +943,7 @@ func (x *RegisterRequest) String() string {
 func (*RegisterRequest) ProtoMessage() {}
 
 func (x *RegisterRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_kv_proto_msgTypes[10]
+	mi := &file_kv_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -746,7 +956,7 @@ func (x *RegisterRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RegisterRequest.ProtoReflect.Descriptor instead.
 func (*RegisterRequest) Descriptor() ([]byte, []int) {
-	return file_kv_proto_rawDescGZIP(), []int{10}
+	return file_kv_proto_rawDescGZIP(), []int{13}
 }
 
 func (x *RegisterRequest) GetGroup() uint64 {
@@ -765,7 +975,7 @@ type RegisterResponse struct {
 
 func (x *RegisterResponse) Reset() {
 	*x = RegisterResponse{}
-	mi := &file_kv_proto_msgTypes[11]
+	mi := &file_kv_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -777,7 +987,7 @@ func (x *RegisterResponse) String() string {
 func (*RegisterResponse) ProtoMessage() {}
 
 func (x *RegisterResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_kv_proto_msgTypes[11]
+	mi := &file_kv_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -790,7 +1000,7 @@ func (x *RegisterResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RegisterResponse.ProtoReflect.Descriptor instead.
 func (*RegisterResponse) Descriptor() ([]byte, []int) {
-	return file_kv_proto_rawDescGZIP(), []int{11}
+	return file_kv_proto_rawDescGZIP(), []int{14}
 }
 
 func (x *RegisterResponse) GetClientId() uint64 {
@@ -812,7 +1022,7 @@ type GetRequest struct {
 
 func (x *GetRequest) Reset() {
 	*x = GetRequest{}
-	mi := &file_kv_proto_msgTypes[12]
+	mi := &file_kv_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -824,7 +1034,7 @@ func (x *GetRequest) String() string {
 func (*GetRequest) ProtoMessage() {}
 
 func (x *GetRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_kv_proto_msgTypes[12]
+	mi := &file_kv_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -837,7 +1047,7 @@ func (x *GetRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetRequest.ProtoReflect.Descriptor instead.
 func (*GetRequest) Descriptor() ([]byte, []int) {
-	return file_kv_proto_rawDescGZIP(), []int{12}
+	return file_kv_proto_rawDescGZIP(), []int{15}
 }
 
 func (x *GetRequest) GetKey() []byte {
@@ -878,7 +1088,7 @@ type GetResponse struct {
 
 func (x *GetResponse) Reset() {
 	*x = GetResponse{}
-	mi := &file_kv_proto_msgTypes[13]
+	mi := &file_kv_proto_msgTypes[16]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -890,7 +1100,7 @@ func (x *GetResponse) String() string {
 func (*GetResponse) ProtoMessage() {}
 
 func (x *GetResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_kv_proto_msgTypes[13]
+	mi := &file_kv_proto_msgTypes[16]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -903,7 +1113,7 @@ func (x *GetResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetResponse.ProtoReflect.Descriptor instead.
 func (*GetResponse) Descriptor() ([]byte, []int) {
-	return file_kv_proto_rawDescGZIP(), []int{13}
+	return file_kv_proto_rawDescGZIP(), []int{16}
 }
 
 func (x *GetResponse) GetFound() bool {
@@ -932,7 +1142,7 @@ type PutRequest struct {
 
 func (x *PutRequest) Reset() {
 	*x = PutRequest{}
-	mi := &file_kv_proto_msgTypes[14]
+	mi := &file_kv_proto_msgTypes[17]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -944,7 +1154,7 @@ func (x *PutRequest) String() string {
 func (*PutRequest) ProtoMessage() {}
 
 func (x *PutRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_kv_proto_msgTypes[14]
+	mi := &file_kv_proto_msgTypes[17]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -957,7 +1167,7 @@ func (x *PutRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PutRequest.ProtoReflect.Descriptor instead.
 func (*PutRequest) Descriptor() ([]byte, []int) {
-	return file_kv_proto_rawDescGZIP(), []int{14}
+	return file_kv_proto_rawDescGZIP(), []int{17}
 }
 
 func (x *PutRequest) GetSession() *Session {
@@ -996,7 +1206,7 @@ type PutResponse struct {
 
 func (x *PutResponse) Reset() {
 	*x = PutResponse{}
-	mi := &file_kv_proto_msgTypes[15]
+	mi := &file_kv_proto_msgTypes[18]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1008,7 +1218,7 @@ func (x *PutResponse) String() string {
 func (*PutResponse) ProtoMessage() {}
 
 func (x *PutResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_kv_proto_msgTypes[15]
+	mi := &file_kv_proto_msgTypes[18]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1021,7 +1231,7 @@ func (x *PutResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PutResponse.ProtoReflect.Descriptor instead.
 func (*PutResponse) Descriptor() ([]byte, []int) {
-	return file_kv_proto_rawDescGZIP(), []int{15}
+	return file_kv_proto_rawDescGZIP(), []int{18}
 }
 
 type DeleteRequest struct {
@@ -1035,7 +1245,7 @@ type DeleteRequest struct {
 
 func (x *DeleteRequest) Reset() {
 	*x = DeleteRequest{}
-	mi := &file_kv_proto_msgTypes[16]
+	mi := &file_kv_proto_msgTypes[19]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1047,7 +1257,7 @@ func (x *DeleteRequest) String() string {
 func (*DeleteRequest) ProtoMessage() {}
 
 func (x *DeleteRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_kv_proto_msgTypes[16]
+	mi := &file_kv_proto_msgTypes[19]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1060,7 +1270,7 @@ func (x *DeleteRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeleteRequest.ProtoReflect.Descriptor instead.
 func (*DeleteRequest) Descriptor() ([]byte, []int) {
-	return file_kv_proto_rawDescGZIP(), []int{16}
+	return file_kv_proto_rawDescGZIP(), []int{19}
 }
 
 func (x *DeleteRequest) GetSession() *Session {
@@ -1092,7 +1302,7 @@ type DeleteResponse struct {
 
 func (x *DeleteResponse) Reset() {
 	*x = DeleteResponse{}
-	mi := &file_kv_proto_msgTypes[17]
+	mi := &file_kv_proto_msgTypes[20]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1104,7 +1314,7 @@ func (x *DeleteResponse) String() string {
 func (*DeleteResponse) ProtoMessage() {}
 
 func (x *DeleteResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_kv_proto_msgTypes[17]
+	mi := &file_kv_proto_msgTypes[20]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1117,7 +1327,7 @@ func (x *DeleteResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeleteResponse.ProtoReflect.Descriptor instead.
 func (*DeleteResponse) Descriptor() ([]byte, []int) {
-	return file_kv_proto_rawDescGZIP(), []int{17}
+	return file_kv_proto_rawDescGZIP(), []int{20}
 }
 
 type CasRequest struct {
@@ -1133,7 +1343,7 @@ type CasRequest struct {
 
 func (x *CasRequest) Reset() {
 	*x = CasRequest{}
-	mi := &file_kv_proto_msgTypes[18]
+	mi := &file_kv_proto_msgTypes[21]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1145,7 +1355,7 @@ func (x *CasRequest) String() string {
 func (*CasRequest) ProtoMessage() {}
 
 func (x *CasRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_kv_proto_msgTypes[18]
+	mi := &file_kv_proto_msgTypes[21]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1158,7 +1368,7 @@ func (x *CasRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CasRequest.ProtoReflect.Descriptor instead.
 func (*CasRequest) Descriptor() ([]byte, []int) {
-	return file_kv_proto_rawDescGZIP(), []int{18}
+	return file_kv_proto_rawDescGZIP(), []int{21}
 }
 
 func (x *CasRequest) GetSession() *Session {
@@ -1207,7 +1417,7 @@ type CasResponse struct {
 
 func (x *CasResponse) Reset() {
 	*x = CasResponse{}
-	mi := &file_kv_proto_msgTypes[19]
+	mi := &file_kv_proto_msgTypes[22]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1219,7 +1429,7 @@ func (x *CasResponse) String() string {
 func (*CasResponse) ProtoMessage() {}
 
 func (x *CasResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_kv_proto_msgTypes[19]
+	mi := &file_kv_proto_msgTypes[22]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1232,7 +1442,7 @@ func (x *CasResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CasResponse.ProtoReflect.Descriptor instead.
 func (*CasResponse) Descriptor() ([]byte, []int) {
-	return file_kv_proto_rawDescGZIP(), []int{19}
+	return file_kv_proto_rawDescGZIP(), []int{22}
 }
 
 func (x *CasResponse) GetSuccess() bool {
@@ -1270,7 +1480,7 @@ type ScanRequest struct {
 
 func (x *ScanRequest) Reset() {
 	*x = ScanRequest{}
-	mi := &file_kv_proto_msgTypes[20]
+	mi := &file_kv_proto_msgTypes[23]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1282,7 +1492,7 @@ func (x *ScanRequest) String() string {
 func (*ScanRequest) ProtoMessage() {}
 
 func (x *ScanRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_kv_proto_msgTypes[20]
+	mi := &file_kv_proto_msgTypes[23]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1295,7 +1505,7 @@ func (x *ScanRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ScanRequest.ProtoReflect.Descriptor instead.
 func (*ScanRequest) Descriptor() ([]byte, []int) {
-	return file_kv_proto_rawDescGZIP(), []int{20}
+	return file_kv_proto_rawDescGZIP(), []int{23}
 }
 
 func (x *ScanRequest) GetStart() []byte {
@@ -1349,7 +1559,7 @@ type ScanResponse struct {
 
 func (x *ScanResponse) Reset() {
 	*x = ScanResponse{}
-	mi := &file_kv_proto_msgTypes[21]
+	mi := &file_kv_proto_msgTypes[24]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1361,7 +1571,7 @@ func (x *ScanResponse) String() string {
 func (*ScanResponse) ProtoMessage() {}
 
 func (x *ScanResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_kv_proto_msgTypes[21]
+	mi := &file_kv_proto_msgTypes[24]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1374,7 +1584,7 @@ func (x *ScanResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ScanResponse.ProtoReflect.Descriptor instead.
 func (*ScanResponse) Descriptor() ([]byte, []int) {
-	return file_kv_proto_rawDescGZIP(), []int{21}
+	return file_kv_proto_rawDescGZIP(), []int{24}
 }
 
 func (x *ScanResponse) GetKvs() []*KeyValue {
@@ -1396,7 +1606,7 @@ type NotLeader struct {
 
 func (x *NotLeader) Reset() {
 	*x = NotLeader{}
-	mi := &file_kv_proto_msgTypes[22]
+	mi := &file_kv_proto_msgTypes[25]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1408,7 +1618,7 @@ func (x *NotLeader) String() string {
 func (*NotLeader) ProtoMessage() {}
 
 func (x *NotLeader) ProtoReflect() protoreflect.Message {
-	mi := &file_kv_proto_msgTypes[22]
+	mi := &file_kv_proto_msgTypes[25]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1421,7 +1631,7 @@ func (x *NotLeader) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use NotLeader.ProtoReflect.Descriptor instead.
 func (*NotLeader) Descriptor() ([]byte, []int) {
-	return file_kv_proto_rawDescGZIP(), []int{22}
+	return file_kv_proto_rawDescGZIP(), []int{25}
 }
 
 func (x *NotLeader) GetLeaderId() uint64 {
@@ -1439,17 +1649,18 @@ func (x *NotLeader) GetLeaderAddr() string {
 }
 
 // ShardMap is stored in the meta group: element i is the group serving
-// shard i.
+// shard i, and moving[i] names the group it is moving to, or zero.
 type ShardMap struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Groups        []uint64               `protobuf:"varint,1,rep,packed,name=groups,proto3" json:"groups,omitempty"`
+	Moving        []uint64               `protobuf:"varint,2,rep,packed,name=moving,proto3" json:"moving,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *ShardMap) Reset() {
 	*x = ShardMap{}
-	mi := &file_kv_proto_msgTypes[23]
+	mi := &file_kv_proto_msgTypes[26]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1461,7 +1672,7 @@ func (x *ShardMap) String() string {
 func (*ShardMap) ProtoMessage() {}
 
 func (x *ShardMap) ProtoReflect() protoreflect.Message {
-	mi := &file_kv_proto_msgTypes[23]
+	mi := &file_kv_proto_msgTypes[26]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1474,7 +1685,7 @@ func (x *ShardMap) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ShardMap.ProtoReflect.Descriptor instead.
 func (*ShardMap) Descriptor() ([]byte, []int) {
-	return file_kv_proto_rawDescGZIP(), []int{23}
+	return file_kv_proto_rawDescGZIP(), []int{26}
 }
 
 func (x *ShardMap) GetGroups() []uint64 {
@@ -1484,11 +1695,239 @@ func (x *ShardMap) GetGroups() []uint64 {
 	return nil
 }
 
+func (x *ShardMap) GetMoving() []uint64 {
+	if x != nil {
+		return x.Moving
+	}
+	return nil
+}
+
+// AdminRequest runs a shard management command in one group's log.
+type AdminRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Group         uint64                 `protobuf:"varint,1,opt,name=group,proto3" json:"group,omitempty"`
+	Command       *Command               `protobuf:"bytes,2,opt,name=command,proto3" json:"command,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *AdminRequest) Reset() {
+	*x = AdminRequest{}
+	mi := &file_kv_proto_msgTypes[27]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *AdminRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*AdminRequest) ProtoMessage() {}
+
+func (x *AdminRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_kv_proto_msgTypes[27]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use AdminRequest.ProtoReflect.Descriptor instead.
+func (*AdminRequest) Descriptor() ([]byte, []int) {
+	return file_kv_proto_rawDescGZIP(), []int{27}
+}
+
+func (x *AdminRequest) GetGroup() uint64 {
+	if x != nil {
+		return x.Group
+	}
+	return 0
+}
+
+func (x *AdminRequest) GetCommand() *Command {
+	if x != nil {
+		return x.Command
+	}
+	return nil
+}
+
+type AdminResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Result        *Result                `protobuf:"bytes,1,opt,name=result,proto3" json:"result,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *AdminResponse) Reset() {
+	*x = AdminResponse{}
+	mi := &file_kv_proto_msgTypes[28]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *AdminResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*AdminResponse) ProtoMessage() {}
+
+func (x *AdminResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_kv_proto_msgTypes[28]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use AdminResponse.ProtoReflect.Descriptor instead.
+func (*AdminResponse) Descriptor() ([]byte, []int) {
+	return file_kv_proto_rawDescGZIP(), []int{28}
+}
+
+func (x *AdminResponse) GetResult() *Result {
+	if x != nil {
+		return x.Result
+	}
+	return nil
+}
+
+type MoveShardRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Shard         uint32                 `protobuf:"varint,1,opt,name=shard,proto3" json:"shard,omitempty"`
+	Group         uint64                 `protobuf:"varint,2,opt,name=group,proto3" json:"group,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *MoveShardRequest) Reset() {
+	*x = MoveShardRequest{}
+	mi := &file_kv_proto_msgTypes[29]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *MoveShardRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*MoveShardRequest) ProtoMessage() {}
+
+func (x *MoveShardRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_kv_proto_msgTypes[29]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use MoveShardRequest.ProtoReflect.Descriptor instead.
+func (*MoveShardRequest) Descriptor() ([]byte, []int) {
+	return file_kv_proto_rawDescGZIP(), []int{29}
+}
+
+func (x *MoveShardRequest) GetShard() uint32 {
+	if x != nil {
+		return x.Shard
+	}
+	return 0
+}
+
+func (x *MoveShardRequest) GetGroup() uint64 {
+	if x != nil {
+		return x.Group
+	}
+	return 0
+}
+
+type MoveShardResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *MoveShardResponse) Reset() {
+	*x = MoveShardResponse{}
+	mi := &file_kv_proto_msgTypes[30]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *MoveShardResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*MoveShardResponse) ProtoMessage() {}
+
+func (x *MoveShardResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_kv_proto_msgTypes[30]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use MoveShardResponse.ProtoReflect.Descriptor instead.
+func (*MoveShardResponse) Descriptor() ([]byte, []int) {
+	return file_kv_proto_rawDescGZIP(), []int{30}
+}
+
+type ShardMapRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ShardMapRequest) Reset() {
+	*x = ShardMapRequest{}
+	mi := &file_kv_proto_msgTypes[31]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ShardMapRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ShardMapRequest) ProtoMessage() {}
+
+func (x *ShardMapRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_kv_proto_msgTypes[31]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ShardMapRequest.ProtoReflect.Descriptor instead.
+func (*ShardMapRequest) Descriptor() ([]byte, []int) {
+	return file_kv_proto_rawDescGZIP(), []int{31}
+}
+
 var File_kv_proto protoreflect.FileDescriptor
 
 const file_kv_proto_rawDesc = "" +
 	"\n" +
-	"\bkv.proto\x12\bkeystone\"\xb7\x02\n" +
+	"\bkv.proto\x12\bkeystone\"\xbe\x03\n" +
 	"\aCommand\x12\x1b\n" +
 	"\tclient_id\x18\x01 \x01(\x04R\bclientId\x12\x10\n" +
 	"\x03seq\x18\x02 \x01(\x04R\x03seq\x122\n" +
@@ -1497,8 +1936,20 @@ const file_kv_proto_rawDesc = "" +
 	"\x06delete\x18\x05 \x01(\v2\x12.keystone.DeleteOpH\x00R\x06delete\x12#\n" +
 	"\x03cas\x18\x06 \x01(\v2\x0f.keystone.CasOpH\x00R\x03cas\x12#\n" +
 	"\x03get\x18\a \x01(\v2\x0f.keystone.GetOpH\x00R\x03get\x12&\n" +
-	"\x04scan\x18\b \x01(\v2\x10.keystone.ScanOpH\x00R\x04scanB\x04\n" +
-	"\x02op\"\f\n" +
+	"\x04scan\x18\b \x01(\v2\x10.keystone.ScanOpH\x00R\x04scan\x12,\n" +
+	"\x06freeze\x18\t \x01(\v2\x12.keystone.FreezeOpH\x00R\x06freeze\x12,\n" +
+	"\x06import\x18\n" +
+	" \x01(\v2\x12.keystone.ImportOpH\x00R\x06import\x12)\n" +
+	"\x05purge\x18\v \x01(\v2\x11.keystone.PurgeOpH\x00R\x05purgeB\x04\n" +
+	"\x02op\" \n" +
+	"\bFreezeOp\x12\x14\n" +
+	"\x05shard\x18\x01 \x01(\rR\x05shard\"Z\n" +
+	"\bImportOp\x12\x14\n" +
+	"\x05shard\x18\x01 \x01(\rR\x05shard\x12$\n" +
+	"\x03kvs\x18\x02 \x03(\v2\x12.keystone.KeyValueR\x03kvs\x12\x12\n" +
+	"\x04last\x18\x03 \x01(\bR\x04last\"\x1f\n" +
+	"\aPurgeOp\x12\x14\n" +
+	"\x05shard\x18\x01 \x01(\rR\x05shard\"\f\n" +
 	"\n" +
 	"RegisterOp\"/\n" +
 	"\x05PutOp\x12\x10\n" +
@@ -1519,13 +1970,14 @@ const file_kv_proto_rawDesc = "" +
 	"\x05limit\x18\x03 \x01(\rR\x05limit\"2\n" +
 	"\bKeyValue\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\fR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\fR\x05value\"\x91\x01\n" +
+	"\x05value\x18\x02 \x01(\fR\x05value\"\xa9\x01\n" +
 	"\x06Result\x12\x14\n" +
 	"\x05found\x18\x01 \x01(\bR\x05found\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\fR\x05value\x12\x18\n" +
 	"\asuccess\x18\x03 \x01(\bR\asuccess\x12\x1b\n" +
 	"\tclient_id\x18\x04 \x01(\x04R\bclientId\x12$\n" +
-	"\x03kvs\x18\x05 \x03(\v2\x12.keystone.KeyValueR\x03kvs\"8\n" +
+	"\x03kvs\x18\x05 \x03(\v2\x12.keystone.KeyValueR\x03kvs\x12\x16\n" +
+	"\x06moving\x18\x06 \x01(\bR\x06moving\"8\n" +
 	"\aSession\x12\x1b\n" +
 	"\tclient_id\x18\x01 \x01(\x04R\bclientId\x12\x10\n" +
 	"\x03seq\x18\x02 \x01(\x04R\x03seq\"'\n" +
@@ -1578,20 +2030,34 @@ const file_kv_proto_rawDesc = "" +
 	"\tNotLeader\x12\x1b\n" +
 	"\tleader_id\x18\x01 \x01(\x04R\bleaderId\x12\x1f\n" +
 	"\vleader_addr\x18\x02 \x01(\tR\n" +
-	"leaderAddr\"\"\n" +
+	"leaderAddr\":\n" +
 	"\bShardMap\x12\x16\n" +
-	"\x06groups\x18\x01 \x03(\x04R\x06groups*#\n" +
+	"\x06groups\x18\x01 \x03(\x04R\x06groups\x12\x16\n" +
+	"\x06moving\x18\x02 \x03(\x04R\x06moving\"Q\n" +
+	"\fAdminRequest\x12\x14\n" +
+	"\x05group\x18\x01 \x01(\x04R\x05group\x12+\n" +
+	"\acommand\x18\x02 \x01(\v2\x11.keystone.CommandR\acommand\"9\n" +
+	"\rAdminResponse\x12(\n" +
+	"\x06result\x18\x01 \x01(\v2\x10.keystone.ResultR\x06result\">\n" +
+	"\x10MoveShardRequest\x12\x14\n" +
+	"\x05shard\x18\x01 \x01(\rR\x05shard\x12\x14\n" +
+	"\x05group\x18\x02 \x01(\x04R\x05group\"\x13\n" +
+	"\x11MoveShardResponse\"\x11\n" +
+	"\x0fShardMapRequest*#\n" +
 	"\bReadMode\x12\x0e\n" +
 	"\n" +
 	"READ_INDEX\x10\x00\x12\a\n" +
-	"\x03LOG\x10\x012\xdd\x02\n" +
+	"\x03LOG\x10\x012\x9b\x04\n" +
 	"\x02KV\x12G\n" +
 	"\x0eRegisterClient\x12\x19.keystone.RegisterRequest\x1a\x1a.keystone.RegisterResponse\x122\n" +
 	"\x03Get\x12\x14.keystone.GetRequest\x1a\x15.keystone.GetResponse\x122\n" +
 	"\x03Put\x12\x14.keystone.PutRequest\x1a\x15.keystone.PutResponse\x12;\n" +
 	"\x06Delete\x12\x17.keystone.DeleteRequest\x1a\x18.keystone.DeleteResponse\x122\n" +
 	"\x03Cas\x12\x14.keystone.CasRequest\x1a\x15.keystone.CasResponse\x125\n" +
-	"\x04Scan\x12\x15.keystone.ScanRequest\x1a\x16.keystone.ScanResponseB'Z%github.com/arifisme/keystone/proto;pbb\x06proto3"
+	"\x04Scan\x12\x15.keystone.ScanRequest\x1a\x16.keystone.ScanResponse\x128\n" +
+	"\x05Admin\x12\x16.keystone.AdminRequest\x1a\x17.keystone.AdminResponse\x12D\n" +
+	"\tMoveShard\x12\x1a.keystone.MoveShardRequest\x1a\x1b.keystone.MoveShardResponse\x12<\n" +
+	"\vGetShardMap\x12\x19.keystone.ShardMapRequest\x1a\x12.keystone.ShardMapB'Z%github.com/arifisme/keystone/proto;pbb\x06proto3"
 
 var (
 	file_kv_proto_rawDescOnce sync.Once
@@ -1606,67 +2072,87 @@ func file_kv_proto_rawDescGZIP() []byte {
 }
 
 var file_kv_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_kv_proto_msgTypes = make([]protoimpl.MessageInfo, 24)
+var file_kv_proto_msgTypes = make([]protoimpl.MessageInfo, 32)
 var file_kv_proto_goTypes = []any{
-	(ReadMode)(0),            // 0: keystone.ReadMode
-	(*Command)(nil),          // 1: keystone.Command
-	(*RegisterOp)(nil),       // 2: keystone.RegisterOp
-	(*PutOp)(nil),            // 3: keystone.PutOp
-	(*DeleteOp)(nil),         // 4: keystone.DeleteOp
-	(*CasOp)(nil),            // 5: keystone.CasOp
-	(*GetOp)(nil),            // 6: keystone.GetOp
-	(*ScanOp)(nil),           // 7: keystone.ScanOp
-	(*KeyValue)(nil),         // 8: keystone.KeyValue
-	(*Result)(nil),           // 9: keystone.Result
-	(*Session)(nil),          // 10: keystone.Session
-	(*RegisterRequest)(nil),  // 11: keystone.RegisterRequest
-	(*RegisterResponse)(nil), // 12: keystone.RegisterResponse
-	(*GetRequest)(nil),       // 13: keystone.GetRequest
-	(*GetResponse)(nil),      // 14: keystone.GetResponse
-	(*PutRequest)(nil),       // 15: keystone.PutRequest
-	(*PutResponse)(nil),      // 16: keystone.PutResponse
-	(*DeleteRequest)(nil),    // 17: keystone.DeleteRequest
-	(*DeleteResponse)(nil),   // 18: keystone.DeleteResponse
-	(*CasRequest)(nil),       // 19: keystone.CasRequest
-	(*CasResponse)(nil),      // 20: keystone.CasResponse
-	(*ScanRequest)(nil),      // 21: keystone.ScanRequest
-	(*ScanResponse)(nil),     // 22: keystone.ScanResponse
-	(*NotLeader)(nil),        // 23: keystone.NotLeader
-	(*ShardMap)(nil),         // 24: keystone.ShardMap
+	(ReadMode)(0),             // 0: keystone.ReadMode
+	(*Command)(nil),           // 1: keystone.Command
+	(*FreezeOp)(nil),          // 2: keystone.FreezeOp
+	(*ImportOp)(nil),          // 3: keystone.ImportOp
+	(*PurgeOp)(nil),           // 4: keystone.PurgeOp
+	(*RegisterOp)(nil),        // 5: keystone.RegisterOp
+	(*PutOp)(nil),             // 6: keystone.PutOp
+	(*DeleteOp)(nil),          // 7: keystone.DeleteOp
+	(*CasOp)(nil),             // 8: keystone.CasOp
+	(*GetOp)(nil),             // 9: keystone.GetOp
+	(*ScanOp)(nil),            // 10: keystone.ScanOp
+	(*KeyValue)(nil),          // 11: keystone.KeyValue
+	(*Result)(nil),            // 12: keystone.Result
+	(*Session)(nil),           // 13: keystone.Session
+	(*RegisterRequest)(nil),   // 14: keystone.RegisterRequest
+	(*RegisterResponse)(nil),  // 15: keystone.RegisterResponse
+	(*GetRequest)(nil),        // 16: keystone.GetRequest
+	(*GetResponse)(nil),       // 17: keystone.GetResponse
+	(*PutRequest)(nil),        // 18: keystone.PutRequest
+	(*PutResponse)(nil),       // 19: keystone.PutResponse
+	(*DeleteRequest)(nil),     // 20: keystone.DeleteRequest
+	(*DeleteResponse)(nil),    // 21: keystone.DeleteResponse
+	(*CasRequest)(nil),        // 22: keystone.CasRequest
+	(*CasResponse)(nil),       // 23: keystone.CasResponse
+	(*ScanRequest)(nil),       // 24: keystone.ScanRequest
+	(*ScanResponse)(nil),      // 25: keystone.ScanResponse
+	(*NotLeader)(nil),         // 26: keystone.NotLeader
+	(*ShardMap)(nil),          // 27: keystone.ShardMap
+	(*AdminRequest)(nil),      // 28: keystone.AdminRequest
+	(*AdminResponse)(nil),     // 29: keystone.AdminResponse
+	(*MoveShardRequest)(nil),  // 30: keystone.MoveShardRequest
+	(*MoveShardResponse)(nil), // 31: keystone.MoveShardResponse
+	(*ShardMapRequest)(nil),   // 32: keystone.ShardMapRequest
 }
 var file_kv_proto_depIdxs = []int32{
-	2,  // 0: keystone.Command.register:type_name -> keystone.RegisterOp
-	3,  // 1: keystone.Command.put:type_name -> keystone.PutOp
-	4,  // 2: keystone.Command.delete:type_name -> keystone.DeleteOp
-	5,  // 3: keystone.Command.cas:type_name -> keystone.CasOp
-	6,  // 4: keystone.Command.get:type_name -> keystone.GetOp
-	7,  // 5: keystone.Command.scan:type_name -> keystone.ScanOp
-	8,  // 6: keystone.Result.kvs:type_name -> keystone.KeyValue
-	0,  // 7: keystone.GetRequest.mode:type_name -> keystone.ReadMode
-	10, // 8: keystone.GetRequest.session:type_name -> keystone.Session
-	10, // 9: keystone.PutRequest.session:type_name -> keystone.Session
-	10, // 10: keystone.DeleteRequest.session:type_name -> keystone.Session
-	10, // 11: keystone.CasRequest.session:type_name -> keystone.Session
-	0,  // 12: keystone.ScanRequest.mode:type_name -> keystone.ReadMode
-	10, // 13: keystone.ScanRequest.session:type_name -> keystone.Session
-	8,  // 14: keystone.ScanResponse.kvs:type_name -> keystone.KeyValue
-	11, // 15: keystone.KV.RegisterClient:input_type -> keystone.RegisterRequest
-	13, // 16: keystone.KV.Get:input_type -> keystone.GetRequest
-	15, // 17: keystone.KV.Put:input_type -> keystone.PutRequest
-	17, // 18: keystone.KV.Delete:input_type -> keystone.DeleteRequest
-	19, // 19: keystone.KV.Cas:input_type -> keystone.CasRequest
-	21, // 20: keystone.KV.Scan:input_type -> keystone.ScanRequest
-	12, // 21: keystone.KV.RegisterClient:output_type -> keystone.RegisterResponse
-	14, // 22: keystone.KV.Get:output_type -> keystone.GetResponse
-	16, // 23: keystone.KV.Put:output_type -> keystone.PutResponse
-	18, // 24: keystone.KV.Delete:output_type -> keystone.DeleteResponse
-	20, // 25: keystone.KV.Cas:output_type -> keystone.CasResponse
-	22, // 26: keystone.KV.Scan:output_type -> keystone.ScanResponse
-	21, // [21:27] is the sub-list for method output_type
-	15, // [15:21] is the sub-list for method input_type
-	15, // [15:15] is the sub-list for extension type_name
-	15, // [15:15] is the sub-list for extension extendee
-	0,  // [0:15] is the sub-list for field type_name
+	5,  // 0: keystone.Command.register:type_name -> keystone.RegisterOp
+	6,  // 1: keystone.Command.put:type_name -> keystone.PutOp
+	7,  // 2: keystone.Command.delete:type_name -> keystone.DeleteOp
+	8,  // 3: keystone.Command.cas:type_name -> keystone.CasOp
+	9,  // 4: keystone.Command.get:type_name -> keystone.GetOp
+	10, // 5: keystone.Command.scan:type_name -> keystone.ScanOp
+	2,  // 6: keystone.Command.freeze:type_name -> keystone.FreezeOp
+	3,  // 7: keystone.Command.import:type_name -> keystone.ImportOp
+	4,  // 8: keystone.Command.purge:type_name -> keystone.PurgeOp
+	11, // 9: keystone.ImportOp.kvs:type_name -> keystone.KeyValue
+	11, // 10: keystone.Result.kvs:type_name -> keystone.KeyValue
+	0,  // 11: keystone.GetRequest.mode:type_name -> keystone.ReadMode
+	13, // 12: keystone.GetRequest.session:type_name -> keystone.Session
+	13, // 13: keystone.PutRequest.session:type_name -> keystone.Session
+	13, // 14: keystone.DeleteRequest.session:type_name -> keystone.Session
+	13, // 15: keystone.CasRequest.session:type_name -> keystone.Session
+	0,  // 16: keystone.ScanRequest.mode:type_name -> keystone.ReadMode
+	13, // 17: keystone.ScanRequest.session:type_name -> keystone.Session
+	11, // 18: keystone.ScanResponse.kvs:type_name -> keystone.KeyValue
+	1,  // 19: keystone.AdminRequest.command:type_name -> keystone.Command
+	12, // 20: keystone.AdminResponse.result:type_name -> keystone.Result
+	14, // 21: keystone.KV.RegisterClient:input_type -> keystone.RegisterRequest
+	16, // 22: keystone.KV.Get:input_type -> keystone.GetRequest
+	18, // 23: keystone.KV.Put:input_type -> keystone.PutRequest
+	20, // 24: keystone.KV.Delete:input_type -> keystone.DeleteRequest
+	22, // 25: keystone.KV.Cas:input_type -> keystone.CasRequest
+	24, // 26: keystone.KV.Scan:input_type -> keystone.ScanRequest
+	28, // 27: keystone.KV.Admin:input_type -> keystone.AdminRequest
+	30, // 28: keystone.KV.MoveShard:input_type -> keystone.MoveShardRequest
+	32, // 29: keystone.KV.GetShardMap:input_type -> keystone.ShardMapRequest
+	15, // 30: keystone.KV.RegisterClient:output_type -> keystone.RegisterResponse
+	17, // 31: keystone.KV.Get:output_type -> keystone.GetResponse
+	19, // 32: keystone.KV.Put:output_type -> keystone.PutResponse
+	21, // 33: keystone.KV.Delete:output_type -> keystone.DeleteResponse
+	23, // 34: keystone.KV.Cas:output_type -> keystone.CasResponse
+	25, // 35: keystone.KV.Scan:output_type -> keystone.ScanResponse
+	29, // 36: keystone.KV.Admin:output_type -> keystone.AdminResponse
+	31, // 37: keystone.KV.MoveShard:output_type -> keystone.MoveShardResponse
+	27, // 38: keystone.KV.GetShardMap:output_type -> keystone.ShardMap
+	30, // [30:39] is the sub-list for method output_type
+	21, // [21:30] is the sub-list for method input_type
+	21, // [21:21] is the sub-list for extension type_name
+	21, // [21:21] is the sub-list for extension extendee
+	0,  // [0:21] is the sub-list for field type_name
 }
 
 func init() { file_kv_proto_init() }
@@ -1681,16 +2167,19 @@ func file_kv_proto_init() {
 		(*Command_Cas)(nil),
 		(*Command_Get)(nil),
 		(*Command_Scan)(nil),
+		(*Command_Freeze)(nil),
+		(*Command_Import)(nil),
+		(*Command_Purge)(nil),
 	}
-	file_kv_proto_msgTypes[4].OneofWrappers = []any{}
-	file_kv_proto_msgTypes[18].OneofWrappers = []any{}
+	file_kv_proto_msgTypes[7].OneofWrappers = []any{}
+	file_kv_proto_msgTypes[21].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_kv_proto_rawDesc), len(file_kv_proto_rawDesc)),
 			NumEnums:      1,
-			NumMessages:   24,
+			NumMessages:   32,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

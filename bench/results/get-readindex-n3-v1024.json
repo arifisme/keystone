@@ -1,0 +1,16 @@
+{
+  "name": "get-readindex-n3-v1024",
+  "nodes": 3,
+  "op": "get",
+  "read": "readindex",
+  "value_size": 1024,
+  "clients": 64,
+  "batched": true,
+  "duration": 10002608216,
+  "ops": 457001,
+  "errors": 0,
+  "throughput": 45688.18353486934,
+  "p50": 798103,
+  "p99": 7747358,
+  "p999": 35458425
+}

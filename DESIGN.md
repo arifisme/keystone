@@ -291,10 +291,35 @@ tracking a session the first time it sees it. A scan is sent to every
 group and merged; each group answers from its own consistent point, so a
 scan across shards is not one snapshot.
 
-Shards do not move. Rebalancing would be a stop-the-shard copy: mark the
-range as moving in the meta group, snapshot it out of the source group
-into the destination, flip the map entry, and drop it from the source.
-It is not built.
+### Moving a shard
+
+`keystonectl move SHARD GROUP` is a stop-the-shard move run by whichever
+router receives it:
+
+1. The meta group's map is updated with a compare-and-swap to say the
+   shard is moving, so a second move of the same shard is refused.
+2. A freeze command goes through the source group's log. From then on the
+   source answers writes to that shard with "moving"; reads still work.
+3. The router pages through the source group, keeps the keys that hash
+   to the shard, and imports them into the destination through its log in
+   chunks of a thousand. The last chunk opens the shard there.
+4. The map entry is flipped with another compare-and-swap against the
+   bytes written in step 1.
+5. A purge command through the source group's log deletes the keys and
+   marks the shard gone. Gone is permanent: the source keeps refusing
+   writes for that shard, so a router still holding the old map cannot
+   land a write there. Reads of a gone shard are refused too.
+
+Routers refresh the map every second and immediately when a group
+answers "moving"; they retry the request against the new group a few
+times and otherwise report Unavailable, which the client library retries
+with backoff. So during a move, writes to that shard stall and every
+other shard is untouched.
+
+Each group keeps its own session table. A write to the moving shard whose
+reply was lost, retried after the flip, reaches a destination that has
+not seen that sequence number and applies it a second time; the window is
+the move itself. Session state does not travel with the shard.
 
 ## Simulation
 

@@ -1,0 +1,16 @@
+{
+  "name": "get-log-n5-v1024",
+  "nodes": 5,
+  "op": "get",
+  "read": "log",
+  "value_size": 1024,
+  "clients": 64,
+  "batched": true,
+  "duration": 10018502323,
+  "ops": 23789,
+  "errors": 0,
+  "throughput": 2374.5066111714473,
+  "p50": 19214660,
+  "p99": 185863965,
+  "p999": 268530431
+}

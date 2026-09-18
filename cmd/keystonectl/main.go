@@ -5,6 +5,8 @@
 //	keystonectl delete KEY
 //	keystonectl cas KEY EXPECTED VALUE      (EXPECTED "-" means absent)
 //	keystonectl scan [START [END]] [-limit N]
+//	keystonectl shards                       (sharded clusters: print the shard map)
+//	keystonectl move SHARD GROUP             (sharded clusters: move a shard)
 package main
 
 import (
@@ -12,6 +14,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -89,6 +92,30 @@ func main() {
 		for _, kv := range kvs {
 			fmt.Printf("%s\t%s\n", kv.Key, kv.Value)
 		}
+	case "shards":
+		var m *pb.ShardMap
+		check(c.Do(ctx, func(ctx context.Context, cli pb.KVClient) error {
+			var err error
+			m, err = cli.GetShardMap(ctx, &pb.ShardMapRequest{})
+			return err
+		}))
+		for i, g := range m.Groups {
+			line := fmt.Sprintf("shard %2d  group %d", i, g)
+			if i < len(m.Moving) && m.Moving[i] != 0 {
+				line += fmt.Sprintf("  moving to %d", m.Moving[i])
+			}
+			fmt.Println(line)
+		}
+	case "move":
+		need(rest, 2)
+		shard, err := strconv.Atoi(rest[0])
+		check(err)
+		group, err := strconv.ParseUint(rest[1], 10, 64)
+		check(err)
+		check(c.Do(ctx, func(ctx context.Context, cli pb.KVClient) error {
+			_, err := cli.MoveShard(ctx, &pb.MoveShardRequest{Shard: uint32(shard), Group: group})
+			return err
+		}))
 	default:
 		usage()
 	}
@@ -112,6 +139,6 @@ func fail(format string, args ...interface{}) {
 }
 
 func usage() {
-	fmt.Fprintln(os.Stderr, "usage: keystonectl [flags] get KEY | put KEY VALUE | delete KEY | cas KEY EXPECTED VALUE | scan [START [END]]")
+	fmt.Fprintln(os.Stderr, "usage: keystonectl [flags] get KEY | put KEY VALUE | delete KEY | cas KEY EXPECTED VALUE | scan [START [END]] | shards | move SHARD GROUP")
 	os.Exit(2)
 }

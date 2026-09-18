@@ -53,8 +53,15 @@ func (s *Server) propose(ctx context.Context, g *Group, cmd *pb.Command) (*pb.Re
 	if err := proto.Unmarshal(p.Result, &res); err != nil {
 		return nil, status.Error(codes.Internal, err.Error())
 	}
+	if res.Moving {
+		return nil, errMoving
+	}
 	return &res, nil
 }
+
+// errMoving tells a router its shard map is stale. Aborted is not retried
+// by the client library, so the router gets to reload the map first.
+var errMoving = status.Error(codes.Aborted, "shard is moving")
 
 // readIndex blocks until a read may be served from local state.
 func (s *Server) readIndex(ctx context.Context, g *Group) error {
@@ -161,10 +168,31 @@ func (s *Server) Get(ctx context.Context, req *pb.GetRequest) (*pb.GetResponse, 
 		return nil, err
 	}
 	v, found, err := g.sm.Get(req.Key)
+	if err == ErrMoving {
+		return nil, errMoving
+	}
 	if err != nil {
 		return nil, status.Error(codes.Internal, err.Error())
 	}
 	return &pb.GetResponse{Found: found, Value: v}, nil
+}
+
+// Admin runs a shard management command through the group's log.
+func (s *Server) Admin(ctx context.Context, req *pb.AdminRequest) (*pb.AdminResponse, error) {
+	g, err := s.group(req.Group)
+	if err != nil {
+		return nil, err
+	}
+	switch req.Command.GetOp().(type) {
+	case *pb.Command_Freeze, *pb.Command_Import, *pb.Command_Purge:
+	default:
+		return nil, status.Error(codes.InvalidArgument, "not an admin command")
+	}
+	res, err := s.propose(ctx, g, req.Command)
+	if err != nil {
+		return nil, err
+	}
+	return &pb.AdminResponse{Result: res}, nil
 }
 
 func (s *Server) Scan(ctx context.Context, req *pb.ScanRequest) (*pb.ScanResponse, error) {

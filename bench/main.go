@@ -229,8 +229,8 @@ func cmdFailover(args []string) {
 }
 
 // runFailover keeps clients writing, kills the leader at killAt, and
-// measures the longest stretch with no successful write around that
-// moment.
+// reports the longest stretch without a successful write between the
+// kill and the new leader settling in.
 func runFailover(nodes, clients int, duration, killAt time.Duration, dir string) Failover {
 	c := startCluster(nodes, true, dir)
 	defer c.stop()
@@ -264,8 +264,8 @@ func runFailover(nodes, clients int, duration, killAt time.Duration, dir string)
 	}
 	time.Sleep(killAt)
 	old := c.leader()
-	killed := time.Since(start)
 	c.kill(old)
+	killed := time.Since(start)
 	var newLeader time.Duration
 	for {
 		if l := c.leader(); l != 0 {
@@ -278,15 +278,17 @@ func runFailover(nodes, clients int, duration, killAt time.Duration, dir string)
 
 	sort.Slice(successes, func(i, j int) bool { return successes[i] < successes[j] })
 	f := Failover{Nodes: nodes, Clients: clients, KilledAt: killed, NewLeaderAt: newLeader, Errors: errors, Ops: len(successes), Bucket: 100 * time.Millisecond, ElectionTick: c.electionTimeout()}
-	var before, after time.Duration
-	for _, t := range successes {
-		if t <= killed {
-			before = t
-		} else if after == 0 {
-			after = t
+	// The gap opens before Stop returns, since the old leader finishes
+	// what it had in flight, so look for the longest gap in a window
+	// around the kill rather than at the timestamp itself.
+	for i := 1; i < len(successes); i++ {
+		if successes[i] < killed-time.Second || successes[i-1] > newLeader+2*time.Second {
+			continue
+		}
+		if gap := successes[i] - successes[i-1]; gap > f.Unavailable {
+			f.Unavailable = gap
 		}
 	}
-	f.Unavailable = after - before
 	buckets := int(duration/f.Bucket) + 1
 	f.Timeline = make([]int, buckets)
 	for _, t := range successes {

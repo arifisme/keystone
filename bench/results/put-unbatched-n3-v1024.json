@@ -1,0 +1,15 @@
+{
+  "name": "put-unbatched-n3-v1024",
+  "nodes": 3,
+  "op": "put",
+  "value_size": 1024,
+  "clients": 64,
+  "batched": false,
+  "duration": 10022003035,
+  "ops": 2746,
+  "errors": 0,
+  "throughput": 273.99712317089717,
+  "p50": 200481610,
+  "p99": 730449132,
+  "p999": 750398387
+}

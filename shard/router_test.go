@@ -79,6 +79,7 @@ func (c *shardedCluster) start(id raft.NodeID) {
 		c.t.Fatal(err)
 	}
 	n.Serve(r)
+	c.t.Cleanup(r.Close)
 	c.nodes[id] = n
 }
 
@@ -233,5 +234,141 @@ func TestKillingOneShardsLeaderLeavesOtherShardsServing(t *testing.T) {
 	}
 	if newLeader := c.leaderOf(3); newLeader == victim {
 		t.Fatal("dead node reported as leader")
+	}
+}
+
+func (c *shardedCluster) direct(g uint64) *kv.Client {
+	c.t.Helper()
+	var eps []string
+	for _, id := range c.groups[g] {
+		eps = append(eps, c.peers[id])
+	}
+	dc, err := kv.NewClient(eps, kv.ClientOptions{Group: g, AttemptTimeout: time.Second})
+	if err != nil {
+		c.t.Fatal(err)
+	}
+	c.t.Cleanup(dc.Close)
+	return dc
+}
+
+func directGet(t *testing.T, dc *kv.Client, g uint64, key string) (string, bool, error) {
+	t.Helper()
+	var res *pb.GetResponse
+	err := dc.Do(context.Background(), func(ctx context.Context, cli pb.KVClient) error {
+		var err error
+		res, err = cli.Get(ctx, &pb.GetRequest{Key: []byte(key), Group: g})
+		return err
+	})
+	if err != nil {
+		return "", false, err
+	}
+	return string(res.Value), res.Found, nil
+}
+
+func TestMoveShardRelocatesKeysAndRoutingFollows(t *testing.T) {
+	c := startSharded(t)
+	cl := c.dial(3, 6)
+	ctx := context.Background()
+	for i := 0; i < 200; i++ {
+		if err := cl.Put(ctx, []byte(fmt.Sprintf("key%d", i)), []byte(fmt.Sprint(i))); err != nil {
+			t.Fatal(err)
+		}
+	}
+	m := DefaultMap([]uint64{2, 3, 4})
+	shard := ShardOf([]byte("key1"))
+	src := m.Groups[shard]
+	dest := uint64(2)
+	if src == dest {
+		dest = 3
+	}
+	var moving []string
+	for i := 0; i < 200; i++ {
+		k := fmt.Sprintf("key%d", i)
+		if ShardOf([]byte(k)) == shard {
+			moving = append(moving, k)
+		}
+	}
+	if len(moving) == 0 {
+		t.Fatal("no keys in the chosen shard")
+	}
+
+	// Keep writing one key in the moving shard the whole time; every
+	// acknowledged write must be visible afterwards.
+	stop := make(chan struct{})
+	var lastAcked string
+	var writes, failures int
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		w := c.dial(9)
+		for i := 0; ; i++ {
+			select {
+			case <-stop:
+				return
+			default:
+			}
+			v := fmt.Sprintf("w%d", i)
+			wctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+			err := w.Put(wctx, []byte(moving[0]), []byte(v))
+			cancel()
+			if err != nil {
+				failures++
+				continue
+			}
+			lastAcked = v
+			writes++
+		}
+	}()
+
+	err := cl.Do(ctx, func(ctx context.Context, cli pb.KVClient) error {
+		_, err := cli.MoveShard(ctx, &pb.MoveShardRequest{Shard: uint32(shard), Group: dest})
+		return err
+	})
+	if err != nil {
+		t.Fatalf("move: %v", err)
+	}
+	close(stop)
+	<-done
+	if writes == 0 {
+		t.Fatal("writer never succeeded")
+	}
+	t.Logf("shard %d: group %d -> %d, %d keys, writer: %d ok, %d failed during the move", shard, src, dest, len(moving), writes, failures)
+
+	srcClient, destClient := c.direct(src), c.direct(dest)
+	for _, k := range moving {
+		want := k[3:]
+		if k == moving[0] {
+			want = lastAcked
+		}
+		v, found, err := directGet(t, destClient, dest, k)
+		if err != nil || !found || v != want {
+			t.Fatalf("%s in destination = %q %v %v, want %q", k, v, found, err, want)
+		}
+		if _, _, err := directGet(t, srcClient, src, k); !isMoving(err) {
+			t.Fatalf("%s still readable in source: %v", k, err)
+		}
+		rv, rfound, err := cl.Get(ctx, []byte(k), pb.ReadMode_READ_INDEX)
+		if err != nil || !rfound || string(rv) != want {
+			t.Fatalf("routed %s = %q %v %v", k, rv, rfound, err)
+		}
+	}
+	var sm *pb.ShardMap
+	cl.Do(ctx, func(ctx context.Context, cli pb.KVClient) error {
+		var err error
+		sm, err = cli.GetShardMap(ctx, &pb.ShardMapRequest{})
+		return err
+	})
+	if sm.Groups[shard] != dest || sm.Moving[shard] != 0 {
+		t.Fatalf("map entry = %d moving %d", sm.Groups[shard], sm.Moving[shard])
+	}
+	if err := cl.Put(ctx, []byte(moving[1%len(moving)]), []byte("after")); err != nil {
+		t.Fatal(err)
+	}
+	if v, found, _ := directGet(t, destClient, dest, moving[1%len(moving)]); !found || v != "after" {
+		t.Fatalf("write after move landed elsewhere: %q %v", v, found)
+	}
+	kvs, err := cl.Scan(ctx, nil, nil, 0, pb.ReadMode_READ_INDEX)
+	if err != nil || len(kvs) != 200 {
+		t.Fatalf("scan after move: %d keys, %v", len(kvs), err)
 	}
 }

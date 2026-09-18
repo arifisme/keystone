@@ -15,7 +15,29 @@ message Command {
     CasOp cas = 6;
     GetOp get = 7;
     ScanOp scan = 8;
+    FreezeOp freeze = 9;
+    ImportOp import = 10;
+    PurgeOp purge = 11;
   }
+}
+
+// FreezeOp stops writes to one shard in this group while it is copied
+// elsewhere.
+message FreezeOp {
+  uint32 shard = 1;
+}
+
+// ImportOp loads a moved shard's keys into this group and takes ownership.
+message ImportOp {
+  uint32 shard = 1;
+  repeated KeyValue kvs = 2;
+  bool last = 3;
+}
+
+// PurgeOp deletes a shard's keys after it has moved away; the shard stays
+// closed here so a stale router cannot write to it.
+message PurgeOp {
+  uint32 shard = 1;
 }
 
 message RegisterOp {}
@@ -60,6 +82,8 @@ message Result {
   bool success = 3;
   uint64 client_id = 4;
   repeated KeyValue kvs = 5;
+  // moving reports that the key's shard is not writable here right now.
+  bool moving = 6;
 }
 
 enum ReadMode {
@@ -146,10 +170,30 @@ message NotLeader {
 }
 
 // ShardMap is stored in the meta group: element i is the group serving
-// shard i.
+// shard i, and moving[i] names the group it is moving to, or zero.
 message ShardMap {
   repeated uint64 groups = 1;
+  repeated uint64 moving = 2;
 }
+
+// AdminRequest runs a shard management command in one group's log.
+message AdminRequest {
+  uint64 group = 1;
+  Command command = 2;
+}
+
+message AdminResponse {
+  Result result = 1;
+}
+
+message MoveShardRequest {
+  uint32 shard = 1;
+  uint64 group = 2;
+}
+
+message MoveShardResponse {}
+
+message ShardMapRequest {}
 
 service KV {
   rpc RegisterClient(RegisterRequest) returns (RegisterResponse);
@@ -158,4 +202,7 @@ service KV {
   rpc Delete(DeleteRequest) returns (DeleteResponse);
   rpc Cas(CasRequest) returns (CasResponse);
   rpc Scan(ScanRequest) returns (ScanResponse);
+  rpc Admin(AdminRequest) returns (AdminResponse);
+  rpc MoveShard(MoveShardRequest) returns (MoveShardResponse);
+  rpc GetShardMap(ShardMapRequest) returns (ShardMap);
 }
