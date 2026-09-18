@@ -213,6 +213,15 @@ step instead of decrementing. And a probe below the follower's commit
 index is answered without inspection, because committed entries are the
 same everywhere.
 
+A leader ships a batch to every follower that is caught up before its
+own write returns, so the follower disks work while the leader's does
+rather than after it, and it moves each follower's next index as batches
+go out instead of waiting for acknowledgements, so consecutive batches
+pipeline. Both are safe for the same reason: the leader counts its own
+replica toward a majority only after its write is durable, and a batch
+that was lost or never made durable on the leader is repaired when the
+next heartbeat probes past it and the follower rejects.
+
 The commit rule is the one from Raft §5.4.2: the leader advances the
 commit index only to an entry of its own term, even if an older entry has
 been replicated to every node. An old-term entry on a majority can still
