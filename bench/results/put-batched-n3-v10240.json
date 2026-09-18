@@ -1,0 +1,15 @@
+{
+  "name": "put-batched-n3-v10240",
+  "nodes": 3,
+  "op": "put",
+  "value_size": 10240,
+  "clients": 64,
+  "batched": true,
+  "duration": 10121465263,
+  "ops": 18004,
+  "errors": 0,
+  "throughput": 1778.7938339140849,
+  "p50": 25729253,
+  "p99": 171307884,
+  "p999": 674687336
+}

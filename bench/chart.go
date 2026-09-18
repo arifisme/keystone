@@ -48,8 +48,8 @@ func cmdChart(args []string) {
 		tput = append(tput, s)
 		p99 = append(p99, l)
 	}
-	write("put-throughput.svg", barChart("Put throughput, 32 clients", sizes, tput, "ops/s"))
-	write("put-p99.svg", barChart("Put p99 latency, 32 clients", sizes, p99, "ms"))
+	write("put-throughput.svg", barChart("Put throughput, 64 clients", sizes, tput, "ops/s"))
+	write("put-p99.svg", barChart("Put p99 latency, 64 clients", sizes, p99, "ms"))
 
 	var rt, rl []series
 	for _, read := range []string{"readindex", "log"} {

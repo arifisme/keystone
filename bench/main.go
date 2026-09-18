@@ -14,6 +14,7 @@ import (
 	"math/rand"
 	"os"
 	"path/filepath"
+	"runtime/pprof"
 	"sort"
 	"sync"
 	"time"
@@ -104,12 +105,21 @@ func cmdRun(args []string) {
 	fs.StringVar(&o.op, "op", "put", "put or get")
 	fs.StringVar(&o.read, "read", "readindex", "get: readindex or log")
 	fs.IntVar(&o.value, "value", 1024, "value size in bytes")
-	fs.IntVar(&o.clients, "clients", 32, "concurrent clients")
+	fs.IntVar(&o.clients, "clients", 64, "concurrent clients")
 	fs.DurationVar(&o.duration, "duration", 10*time.Second, "measurement length")
 	fs.BoolVar(&o.batched, "batched", true, "let concurrent proposals share a log append")
 	fs.StringVar(&o.dir, "dir", "", "data directory (default: temporary)")
 	out := fs.String("out", "", "write JSON result here")
+	cpuprofile := fs.String("cpuprofile", "", "write a CPU profile here")
 	fs.Parse(args)
+	if *cpuprofile != "" {
+		f, err := os.Create(*cpuprofile)
+		if err != nil {
+			fail(err)
+		}
+		pprof.StartCPUProfile(f)
+		defer pprof.StopCPUProfile()
+	}
 	res := runWorkload(o)
 	report(res, *out)
 }
@@ -209,7 +219,7 @@ func benchKey(i int) []byte {
 func cmdFailover(args []string) {
 	fs := flag.NewFlagSet("failover", flag.ExitOnError)
 	nodes := fs.Int("nodes", 5, "cluster size")
-	clients := fs.Int("clients", 32, "concurrent clients")
+	clients := fs.Int("clients", 64, "concurrent clients")
 	duration := fs.Duration("duration", 15*time.Second, "total run")
 	killAt := fs.Duration("kill", 5*time.Second, "when to kill the leader")
 	dir := fs.String("dir", "", "data directory (default: temporary)")
@@ -289,7 +299,7 @@ func cmdAll(args []string) {
 	fs := flag.NewFlagSet("all", flag.ExitOnError)
 	out := fs.String("out", "bench/results", "results directory")
 	duration := fs.Duration("duration", 10*time.Second, "per run")
-	clients := fs.Int("clients", 32, "concurrent clients")
+	clients := fs.Int("clients", 64, "concurrent clients")
 	dir := fs.String("dir", "", "data directory (default: temporary)")
 	fs.Parse(args)
 	if err := os.MkdirAll(*out, 0o755); err != nil {

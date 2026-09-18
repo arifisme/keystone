@@ -1,0 +1,15 @@
+{
+  "name": "put-batched-n3-v100",
+  "nodes": 3,
+  "op": "put",
+  "value_size": 100,
+  "clients": 64,
+  "batched": true,
+  "duration": 10036046999,
+  "ops": 25076,
+  "errors": 0,
+  "throughput": 2498.5933209059895,
+  "p50": 24903519,
+  "p99": 49275001,
+  "p999": 59230296
+}
