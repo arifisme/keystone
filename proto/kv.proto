@@ -1,0 +1,146 @@
+syntax = "proto3";
+
+package keystone;
+
+option go_package = "github.com/arifisme/keystone/proto;pb";
+
+// Command is the payload of a Raft log entry.
+message Command {
+  uint64 client_id = 1;
+  uint64 seq = 2;
+  oneof op {
+    RegisterOp register = 3;
+    PutOp put = 4;
+    DeleteOp delete = 5;
+    CasOp cas = 6;
+    GetOp get = 7;
+    ScanOp scan = 8;
+  }
+}
+
+message RegisterOp {}
+
+message PutOp {
+  bytes key = 1;
+  bytes value = 2;
+}
+
+message DeleteOp {
+  bytes key = 1;
+}
+
+// CasOp replaces the value only if the current value equals expected; an
+// unset expected means the key must be absent.
+message CasOp {
+  bytes key = 1;
+  optional bytes expected = 2;
+  bytes value = 3;
+}
+
+message GetOp {
+  bytes key = 1;
+}
+
+message ScanOp {
+  bytes start = 1;
+  bytes end = 2;
+  uint32 limit = 3;
+}
+
+message KeyValue {
+  bytes key = 1;
+  bytes value = 2;
+}
+
+// Result is what applying a Command produced. It is cached per session so
+// a retried command returns the same answer.
+message Result {
+  bool found = 1;
+  bytes value = 2;
+  bool success = 3;
+  uint64 client_id = 4;
+  repeated KeyValue kvs = 5;
+}
+
+enum ReadMode {
+  READ_INDEX = 0;
+  LOG = 1;
+}
+
+message Session {
+  uint64 client_id = 1;
+  uint64 seq = 2;
+}
+
+message RegisterRequest {}
+
+message RegisterResponse {
+  uint64 client_id = 1;
+}
+
+message GetRequest {
+  bytes key = 1;
+  ReadMode mode = 2;
+  Session session = 3;
+}
+
+message GetResponse {
+  bool found = 1;
+  bytes value = 2;
+}
+
+message PutRequest {
+  Session session = 1;
+  bytes key = 2;
+  bytes value = 3;
+}
+
+message PutResponse {}
+
+message DeleteRequest {
+  Session session = 1;
+  bytes key = 2;
+}
+
+message DeleteResponse {}
+
+message CasRequest {
+  Session session = 1;
+  bytes key = 2;
+  optional bytes expected = 3;
+  bytes value = 4;
+}
+
+message CasResponse {
+  bool success = 1;
+  bool found = 2;
+  bytes current = 3;
+}
+
+message ScanRequest {
+  bytes start = 1;
+  bytes end = 2;
+  uint32 limit = 3;
+  ReadMode mode = 4;
+  Session session = 5;
+}
+
+message ScanResponse {
+  repeated KeyValue kvs = 1;
+}
+
+// NotLeader is attached to a FailedPrecondition status so the client can
+// go straight to the leader.
+message NotLeader {
+  uint64 leader_id = 1;
+  string leader_addr = 2;
+}
+
+service KV {
+  rpc Register(RegisterRequest) returns (RegisterResponse);
+  rpc Get(GetRequest) returns (GetResponse);
+  rpc Put(PutRequest) returns (PutResponse);
+  rpc Delete(DeleteRequest) returns (DeleteResponse);
+  rpc Cas(CasRequest) returns (CasResponse);
+  rpc Scan(ScanRequest) returns (ScanResponse);
+}
