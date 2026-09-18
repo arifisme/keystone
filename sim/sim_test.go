@@ -5,18 +5,20 @@ import (
 	"fmt"
 	"math/rand"
 	"testing"
+	"time"
 )
 
 var (
-	seeds = flag.Int("seeds", 500, "number of seeds to run")
-	seed  = flag.Int64("seed", 0, "replay a single seed")
-	chaos = flag.Int("chaos", 2, "chaos level 0-3")
+	seeds  = flag.Int("seeds", 500, "number of seeds to run")
+	seed   = flag.Int64("seed", 0, "replay a single seed")
+	chaos  = flag.Int("chaos", 2, "chaos level 0-3")
+	faults = flag.Duration("faults", 4*time.Second, "length of the fault phase per run")
 )
 
 func runSeed(t *testing.T, seed int64, chaos int) Stats {
 	t.Helper()
 	rng := rand.New(rand.NewSource(seed))
-	return runConfig(t, Config{Seed: seed, Chaos: chaos, Nodes: 3 + 2*rng.Intn(2)})
+	return runConfig(t, Config{Seed: seed, Chaos: chaos, Nodes: 3 + 2*rng.Intn(2), Faults: *faults})
 }
 
 func runConfig(t *testing.T, cfg Config) Stats {
@@ -57,7 +59,7 @@ func TestSim(t *testing.T) {
 // sessions must carry across them.
 func TestSimMultiShard(t *testing.T) {
 	if *seed != 0 {
-		st := runConfig(t, Config{Seed: *seed, Chaos: *chaos, Groups: 3, Nodes: 3, Keys: 8})
+		st := runConfig(t, Config{Seed: *seed, Chaos: *chaos, Groups: 3, Nodes: 3, Keys: 8, Faults: *faults})
 		t.Logf("seed %d: %+v", *seed, st)
 		return
 	}
@@ -65,7 +67,7 @@ func TestSimMultiShard(t *testing.T) {
 		i := i
 		t.Run(fmt.Sprint(i), func(t *testing.T) {
 			t.Parallel()
-			runConfig(t, Config{Seed: int64(i), Chaos: *chaos, Groups: 3, Nodes: 3, Keys: 8})
+			runConfig(t, Config{Seed: int64(i), Chaos: *chaos, Groups: 3, Nodes: 3, Keys: 8, Faults: *faults})
 		})
 	}
 }

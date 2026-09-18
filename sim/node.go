@@ -149,14 +149,22 @@ func (s *Sim) jitteredTick() time.Duration {
 
 // run executes one step of a node: a message, a tick, or a flush. The
 // store is checkpointed first and outgoing messages are held. At the
-// highest chaos level the step may be cut short by a crash, which keeps
-// a random prefix of its writes and none of its messages.
+// highest chaos level the step may be cut short by a crash at a random
+// point: writes after it are lost and messages after it are never sent.
 func (s *Sim) run(n *node, step func()) {
 	n.store.checkpoint()
 	step()
 	if n.store.dirty() && s.rng.Float64() < s.faults.tornTail {
 		s.stats.TornTails++
-		n.store.rollback(s.rng)
+		cut := n.store.rollback(s.rng)
+		// Whatever was sent before the cut is out: a leader ships a
+		// batch to followers before its own write returns. Whatever was
+		// sent after, such as a follower's acknowledgement, never left.
+		for _, o := range s.outbox {
+			if o.pos <= cut {
+				s.net.send(o)
+			}
+		}
 		s.outbox = s.outbox[:0]
 		s.crash(n)
 		s.schedule(s.restartDelay(), &event{kind: evRestart, node: n.id})

@@ -18,20 +18,25 @@ type network struct {
 	cuts     map[[2]raft.NodeID]int
 }
 
+// outMsg remembers how much of the sender's journal existed when it was
+// sent, so a crash cut at a later point still lets it out and a crash
+// cut before it does not.
 type outMsg struct {
 	to  raft.NodeID
 	msg raft.Message
+	pos int
 }
 
 // transport is what a node sends through. Messages sent during a step
-// are held until the step completes, so a crash mid-step loses them the
-// way a real crash would.
+// are held until the step completes; a crash mid-step releases only
+// those sent before the point where the journal was cut.
 type transport struct {
-	s *Sim
+	s    *Sim
+	node *node
 }
 
 func (t *transport) Send(to raft.NodeID, m raft.Message) {
-	t.s.outbox = append(t.s.outbox, outMsg{to: to, msg: m})
+	t.s.outbox = append(t.s.outbox, outMsg{to: to, msg: m, pos: len(t.node.store.journal)})
 }
 
 func (t *transport) Recv() <-chan raft.Message {

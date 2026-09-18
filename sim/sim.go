@@ -105,7 +105,8 @@ func New(cfg Config) *Sim {
 			id := raft.NodeID(len(s.nodes) + 1)
 			s.ids = append(s.ids, id)
 			g.ids = append(g.ids, id)
-			n := &node{id: id, group: g, store: &logStore{}, tr: &transport{s: s}}
+			n := &node{id: id, group: g, store: &logStore{}}
+			n.tr = &transport{s: s, node: n}
 			n.clock = &clock{s: s, node: n}
 			s.nodes = append(s.nodes, n)
 			g.nodes = append(g.nodes, n)

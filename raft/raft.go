@@ -272,19 +272,40 @@ func (r *Raft) becomeLeader() {
 	r.appendEntries([]Entry{{Type: EntryNoop}})
 }
 
-// appendEntries assigns indexes and the current term, persists, and
-// replicates. Leader only.
+// appendEntries assigns indexes and the current term, replicates, and
+// persists. Leader only.
+//
+// Followers that are caught up get the batch before the local write, so
+// their disks work while the leader's does instead of after it. That is
+// safe because the leader's own replica is counted toward a majority only
+// once the write has returned: if it crashes in between, the entries are
+// merely uncommitted entries on some followers, which the next leader
+// keeps or truncates like any others.
 func (r *Raft) appendEntries(entries []Entry) uint64 {
 	last := r.store.LastIndex()
 	for i := range entries {
 		entries[i].Index = last + 1 + uint64(i)
 		entries[i].Term = r.term
 	}
+	prevTerm := r.termAt(last)
+	early := make(map[NodeID]bool, len(r.peers))
+	for _, p := range r.peers {
+		if p == r.id || r.next[p] != last+1 || len(entries) > r.maxBatch {
+			continue
+		}
+		early[p] = true
+		r.next[p] = last + 1 + uint64(len(entries))
+		r.send(Message{Type: MsgApp, To: p, Index: last, LogTerm: prevTerm, Entries: entries, Commit: r.commit})
+	}
 	if err := r.store.Append(entries); err != nil {
 		panic(fmt.Sprintf("raft: append: %v", err))
 	}
 	r.match[r.id] = last + uint64(len(entries))
-	r.broadcastAppend()
+	for _, p := range r.peers {
+		if p != r.id && !early[p] {
+			r.sendAppend(p, 0)
+		}
+	}
 	r.maybeCommit()
 	return last + 1
 }

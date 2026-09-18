@@ -170,11 +170,13 @@ func (l *logStore) commit() {
 	l.mark = len(l.journal)
 }
 
-// rollback keeps a random prefix of the step's writes and rebuilds state.
-func (l *logStore) rollback(rng *rand.Rand) {
+// rollback keeps a random prefix of the step's writes, rebuilds state,
+// and returns the journal length it kept.
+func (l *logStore) rollback(rng *rand.Rand) int {
 	cut := l.mark + rng.Intn(len(l.journal)-l.mark)
 	l.journal = l.journal[:cut]
 	l.rewrite = false
 	l.replay()
 	l.mark = len(l.journal)
+	return cut
 }
