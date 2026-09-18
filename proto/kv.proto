@@ -137,7 +137,7 @@ message NotLeader {
 }
 
 service KV {
-  rpc Register(RegisterRequest) returns (RegisterResponse);
+  rpc RegisterClient(RegisterRequest) returns (RegisterResponse);
   rpc Get(GetRequest) returns (GetResponse);
   rpc Put(PutRequest) returns (PutResponse);
   rpc Delete(DeleteRequest) returns (DeleteResponse);

@@ -1480,9 +1480,9 @@ const file_kv_proto_rawDesc = "" +
 	"\bReadMode\x12\x0e\n" +
 	"\n" +
 	"READ_INDEX\x10\x00\x12\a\n" +
-	"\x03LOG\x10\x012\xd7\x02\n" +
-	"\x02KV\x12A\n" +
-	"\bRegister\x12\x19.keystone.RegisterRequest\x1a\x1a.keystone.RegisterResponse\x122\n" +
+	"\x03LOG\x10\x012\xdd\x02\n" +
+	"\x02KV\x12G\n" +
+	"\x0eRegisterClient\x12\x19.keystone.RegisterRequest\x1a\x1a.keystone.RegisterResponse\x122\n" +
 	"\x03Get\x12\x14.keystone.GetRequest\x1a\x15.keystone.GetResponse\x122\n" +
 	"\x03Put\x12\x14.keystone.PutRequest\x1a\x15.keystone.PutResponse\x12;\n" +
 	"\x06Delete\x12\x17.keystone.DeleteRequest\x1a\x18.keystone.DeleteResponse\x122\n" +
@@ -1545,13 +1545,13 @@ var file_kv_proto_depIdxs = []int32{
 	0,  // 12: keystone.ScanRequest.mode:type_name -> keystone.ReadMode
 	10, // 13: keystone.ScanRequest.session:type_name -> keystone.Session
 	8,  // 14: keystone.ScanResponse.kvs:type_name -> keystone.KeyValue
-	11, // 15: keystone.KV.Register:input_type -> keystone.RegisterRequest
+	11, // 15: keystone.KV.RegisterClient:input_type -> keystone.RegisterRequest
 	13, // 16: keystone.KV.Get:input_type -> keystone.GetRequest
 	15, // 17: keystone.KV.Put:input_type -> keystone.PutRequest
 	17, // 18: keystone.KV.Delete:input_type -> keystone.DeleteRequest
 	19, // 19: keystone.KV.Cas:input_type -> keystone.CasRequest
 	21, // 20: keystone.KV.Scan:input_type -> keystone.ScanRequest
-	12, // 21: keystone.KV.Register:output_type -> keystone.RegisterResponse
+	12, // 21: keystone.KV.RegisterClient:output_type -> keystone.RegisterResponse
 	14, // 22: keystone.KV.Get:output_type -> keystone.GetResponse
 	16, // 23: keystone.KV.Put:output_type -> keystone.PutResponse
 	18, // 24: keystone.KV.Delete:output_type -> keystone.DeleteResponse

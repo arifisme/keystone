@@ -19,19 +19,19 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	KV_Register_FullMethodName = "/keystone.KV/Register"
-	KV_Get_FullMethodName      = "/keystone.KV/Get"
-	KV_Put_FullMethodName      = "/keystone.KV/Put"
-	KV_Delete_FullMethodName   = "/keystone.KV/Delete"
-	KV_Cas_FullMethodName      = "/keystone.KV/Cas"
-	KV_Scan_FullMethodName     = "/keystone.KV/Scan"
+	KV_RegisterClient_FullMethodName = "/keystone.KV/RegisterClient"
+	KV_Get_FullMethodName            = "/keystone.KV/Get"
+	KV_Put_FullMethodName            = "/keystone.KV/Put"
+	KV_Delete_FullMethodName         = "/keystone.KV/Delete"
+	KV_Cas_FullMethodName            = "/keystone.KV/Cas"
+	KV_Scan_FullMethodName           = "/keystone.KV/Scan"
 )
 
 // KVClient is the client API for KV service.
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type KVClient interface {
-	Register(ctx context.Context, in *RegisterRequest, opts ...grpc.CallOption) (*RegisterResponse, error)
+	RegisterClient(ctx context.Context, in *RegisterRequest, opts ...grpc.CallOption) (*RegisterResponse, error)
 	Get(ctx context.Context, in *GetRequest, opts ...grpc.CallOption) (*GetResponse, error)
 	Put(ctx context.Context, in *PutRequest, opts ...grpc.CallOption) (*PutResponse, error)
 	Delete(ctx context.Context, in *DeleteRequest, opts ...grpc.CallOption) (*DeleteResponse, error)
@@ -47,10 +47,10 @@ func NewKVClient(cc grpc.ClientConnInterface) KVClient {
 	return &kVClient{cc}
 }
 
-func (c *kVClient) Register(ctx context.Context, in *RegisterRequest, opts ...grpc.CallOption) (*RegisterResponse, error) {
+func (c *kVClient) RegisterClient(ctx context.Context, in *RegisterRequest, opts ...grpc.CallOption) (*RegisterResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(RegisterResponse)
-	err := c.cc.Invoke(ctx, KV_Register_FullMethodName, in, out, cOpts...)
+	err := c.cc.Invoke(ctx, KV_RegisterClient_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -111,7 +111,7 @@ func (c *kVClient) Scan(ctx context.Context, in *ScanRequest, opts ...grpc.CallO
 // All implementations must embed UnimplementedKVServer
 // for forward compatibility.
 type KVServer interface {
-	Register(context.Context, *RegisterRequest) (*RegisterResponse, error)
+	RegisterClient(context.Context, *RegisterRequest) (*RegisterResponse, error)
 	Get(context.Context, *GetRequest) (*GetResponse, error)
 	Put(context.Context, *PutRequest) (*PutResponse, error)
 	Delete(context.Context, *DeleteRequest) (*DeleteResponse, error)
@@ -127,8 +127,8 @@ type KVServer interface {
 // pointer dereference when methods are called.
 type UnimplementedKVServer struct{}
 
-func (UnimplementedKVServer) Register(context.Context, *RegisterRequest) (*RegisterResponse, error) {
-	return nil, status.Error(codes.Unimplemented, "method Register not implemented")
+func (UnimplementedKVServer) RegisterClient(context.Context, *RegisterRequest) (*RegisterResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method RegisterClient not implemented")
 }
 func (UnimplementedKVServer) Get(context.Context, *GetRequest) (*GetResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method Get not implemented")
@@ -166,20 +166,20 @@ func RegisterKVServer(s grpc.ServiceRegistrar, srv KVServer) {
 	s.RegisterService(&KV_ServiceDesc, srv)
 }
 
-func _KV_Register_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+func _KV_RegisterClient_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(RegisterRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(KVServer).Register(ctx, in)
+		return srv.(KVServer).RegisterClient(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: KV_Register_FullMethodName,
+		FullMethod: KV_RegisterClient_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(KVServer).Register(ctx, req.(*RegisterRequest))
+		return srv.(KVServer).RegisterClient(ctx, req.(*RegisterRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -282,8 +282,8 @@ var KV_ServiceDesc = grpc.ServiceDesc{
 	HandlerType: (*KVServer)(nil),
 	Methods: []grpc.MethodDesc{
 		{
-			MethodName: "Register",
-			Handler:    _KV_Register_Handler,
+			MethodName: "RegisterClient",
+			Handler:    _KV_RegisterClient_Handler,
 		},
 		{
 			MethodName: "Get",
