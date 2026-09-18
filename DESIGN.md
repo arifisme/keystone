@@ -178,6 +178,107 @@ rewritten in full to `MANIFEST.tmp`, synced, and renamed over the old one
 on every flush and compaction. Recovery reads it, deletes any `.sst` it
 does not mention, and replays WAL segments from the recorded one onward.
 
+## Raft
+
+`raft.Raft` is the protocol: a struct whose only entry points are `Step`
+for one incoming message, `Tick` for one unit of time, `Propose`, and
+`ReadIndex`. It never blocks and never starts a goroutine. Every effect is
+a `LogStore` write or a `Transport.Send`. `raft.Node` wraps it with the
+state machine, proposal handles and, in production, one goroutine that
+selects over the transport, the clock and queued proposals. The simulator
+calls `Step`, `Tick` and `Flush` itself.
+
+### Persistence
+
+The node answers a vote or an append only after the state it implies is
+durable. `DiskStore` writes `currentTerm` and `votedFor` as records in the
+same WAL segments as the entries, so one `fsync` covers both, and keeps
+the live tail of the log in memory so nothing reads the WAL until the next
+open. An entry record whose index is at or below the last one truncates
+the log; that is the only truncation mechanism, which keeps recovery a
+straight replay. A snapshot is a file named by its index; the WAL record
+pointing at it is written afterwards, so a crash between the two leaves a
+file the next open discards.
+
+### Election and replication
+
+Election timeouts are drawn per term from `[T, 2T)` ticks. A follower that
+has heard from a leader refuses to vote in that term, so one slow node
+cannot unseat a working leader by timing out early.
+
+Replication is the paper's AppendEntries with two additions. When a
+follower rejects, it reports the term of its conflicting entry and the
+first index of that term; the leader jumps back over the whole term in one
+step instead of decrementing. And a probe below the follower's commit
+index is answered without inspection, because committed entries are the
+same everywhere.
+
+The commit rule is the one from Raft §5.4.2: the leader advances the
+commit index only to an entry of its own term, even if an older entry has
+been replicated to every node. An old-term entry on a majority can still
+be overwritten by a leader that never saw it; only an own-term entry
+proves the leader's log is the one that survives. A new leader appends a
+no-op so this can happen without waiting for a client.
+
+### Reads
+
+Two paths, chosen per request. A log read is a command like any other:
+it costs a round of replication and an `fsync`, and is trivially
+linearizable because it is ordered in the log. A ReadIndex read records
+the commit index, sends one heartbeat round, and once a majority answers
+serves from local state as soon as that index is applied; it skips the
+disk and the log but still pays one network round trip, and the leader
+must have committed an entry of its own term first or its commit index
+may be stale. A confirmed read index stays valid after losing leadership,
+since it names a point in the log that cannot change.
+
+### Snapshots
+
+When the applied log exceeds a threshold the node asks the state machine
+for a snapshot and compacts the log behind it. The key-value state
+machine's snapshot is an SSTable produced by the engine's `Export`: one
+sequential pass that keeps the newest version of every key and drops
+tombstones. Restoring installs that file as the only live table, which is
+a rename and a manifest write rather than a re-insert of every key.
+
+A follower too far behind receives the snapshot in chunks with one in
+flight at a time. Each chunk is acknowledged with the offset expected
+next; a chunk that cannot be placed restarts the transfer, and the
+leader's heartbeat resends whatever is outstanding, so a lost chunk costs
+one tick.
+
+## Key-value service
+
+Commands are protobuf messages in the log. Each carries a client id and a
+sequence number; the state machine keeps the last sequence and cached
+result per client, returns the cached result for a repeat, and writes the
+session update in the same batch as the command's effects. The client
+library allocates a sequence number once per operation and reuses it on
+every retry, so a write whose reply was lost is applied exactly once.
+Sessions never expire; that is listed under limitations.
+
+Everything lives in one engine under a one-byte prefix: user keys under
+`k`, sessions under `s`, and the applied index under `m`. The applied
+index is written in every batch, which is what lets a restart resume from
+the state machine's own durable position instead of replaying the log
+from the last snapshot.
+
+Servers answer a request they cannot serve with `FailedPrecondition` and
+a `NotLeader` detail naming the leader's id and address. The client
+switches to that address and retries at once; a connection failure moves
+it to the next endpoint with capped exponential backoff.
+
+## Simulation
+
+`sim` runs a whole cluster in one goroutine. Every source of
+nondeterminism is replaced: a priority queue of events keyed by simulated
+time stands in for the network, the clock advances only when the loop
+pops an event, the log store is a journal in memory whose tail is rolled
+back on a crash, and the state machine runs on the in-memory engine.
+The same seed always produces the same run, so a failure is a seed. The
+section on testing in the README describes the fault schedule and what is
+checked.
+
 ## Non-goals
 
 - Distributed transactions across shards. Each key lives in one Raft group

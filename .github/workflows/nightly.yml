@@ -18,3 +18,14 @@ jobs:
         env:
           KEYSTONE_CRASH_ITERS: "5000"
         run: go test -race -run TestCrashRecovery -v -timeout 100m ./storage
+
+  simulation:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: simulation, 50000 seeds at full chaos
+        run: go test -run TestSim -seeds=50000 -chaos=3 -timeout 170m ./sim
