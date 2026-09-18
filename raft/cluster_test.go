@@ -1,7 +1,8 @@
 package raft
 
 import (
-	"errors"
+	"bytes"
+	"encoding/binary"
 	"fmt"
 	"io"
 	"math/rand"
@@ -9,8 +10,6 @@ import (
 	"testing"
 	"time"
 )
-
-var errNoSnapshot = errors.New("snapshots not supported")
 
 // hub is an in-memory network between nodes. It records which node sent
 // AppendEntries in which term, which is exactly the set of nodes that
@@ -76,8 +75,47 @@ func (s *recordingSM) LastApplied() uint64 {
 	return s.last
 }
 
-func (s *recordingSM) Snapshot() (io.ReadCloser, error) { return nil, errNoSnapshot }
-func (s *recordingSM) Restore(io.Reader) error          { return errNoSnapshot }
+// Snapshot encodes the applied entries as index|term|len|data records.
+func (s *recordingSM) Snapshot() (io.ReadCloser, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var buf bytes.Buffer
+	for _, e := range s.applied {
+		binary.Write(&buf, binary.LittleEndian, e.Index)
+		binary.Write(&buf, binary.LittleEndian, e.Term)
+		binary.Write(&buf, binary.LittleEndian, uint32(len(e.Data)))
+		buf.Write(e.Data)
+	}
+	return io.NopCloser(&buf), nil
+}
+
+func (s *recordingSM) Restore(r io.Reader) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.applied = nil
+	s.last = 0
+	for {
+		var e Entry
+		var n uint32
+		if err := binary.Read(r, binary.LittleEndian, &e.Index); err == io.EOF {
+			return nil
+		} else if err != nil {
+			return err
+		}
+		if err := binary.Read(r, binary.LittleEndian, &e.Term); err != nil {
+			return err
+		}
+		if err := binary.Read(r, binary.LittleEndian, &n); err != nil {
+			return err
+		}
+		e.Data = make([]byte, n)
+		if _, err := io.ReadFull(r, e.Data); err != nil {
+			return err
+		}
+		s.applied = append(s.applied, e)
+		s.last = e.Index
+	}
+}
 
 func (s *recordingSM) entries() []Entry {
 	s.mu.Lock()
@@ -153,6 +191,7 @@ func (c *cluster) start(id NodeID) {
 			Store:         c.stores[id],
 			Transport:     hubTransport{c.h, id},
 			Rand:          rand.New(rand.NewSource(c.seed + int64(id))),
+			SnapshotChunk: 64,
 		},
 		StateMachine:      c.sms[id],
 		Clock:             SystemClock{},
@@ -205,6 +244,42 @@ func (c *cluster) waitForLeader(within time.Duration) *Node {
 	return nil
 }
 
+// waitSettled blocks until every live node has applied the same index and
+// that index is not moving.
+func (c *cluster) waitSettled(within time.Duration) uint64 {
+	c.t.Helper()
+	deadline := time.Now().Add(within)
+	var last uint64
+	stable := 0
+	for time.Now().Before(deadline) {
+		applied := uint64(0)
+		same := true
+		for _, n := range c.nodes {
+			s := n.Status()
+			if s.Applied != s.Commit {
+				same = false
+			}
+			if applied == 0 {
+				applied = s.Applied
+			} else if s.Applied != applied {
+				same = false
+			}
+		}
+		if same && applied == last {
+			stable++
+			if stable >= 20 {
+				return applied
+			}
+		} else {
+			stable = 0
+		}
+		last = applied
+		time.Sleep(5 * time.Millisecond)
+	}
+	c.t.Fatalf("cluster never settled (seed %d): %s", c.seed, statusLine(c))
+	return 0
+}
+
 func (c *cluster) checkOneLeaderPerTerm() {
 	c.t.Helper()
 	c.h.mu.Lock()
@@ -245,9 +320,15 @@ func TestSingleNodeBecomesLeaderAlone(t *testing.T) {
 func TestMinorityCannotElectLeader(t *testing.T) {
 	c := newCluster(t, 5)
 	defer c.stop()
-	c.waitForLeader(5 * electionTimeout())
-	for _, id := range c.ids[:3] {
-		c.kill(id)
+	l := c.waitForLeader(5 * electionTimeout())
+	leader := l.Status().ID
+	c.kill(leader)
+	killed := 1
+	for _, id := range c.ids {
+		if id != leader && killed < 3 {
+			c.kill(id)
+			killed++
+		}
 	}
 	time.Sleep(6 * electionTimeout())
 	for _, n := range c.nodes {

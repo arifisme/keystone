@@ -34,7 +34,12 @@ func (s State) String() string {
 	return "unknown"
 }
 
-var ErrNotLeader = errors.New("raft: not leader")
+var (
+	ErrNotLeader = errors.New("raft: not leader")
+	// ErrLeaderNotReady means the leader has not yet committed an entry of
+	// its own term; retry after the next commit.
+	ErrLeaderNotReady = errors.New("raft: leader has not committed in its term")
+)
 
 type Config struct {
 	ID    NodeID
@@ -44,10 +49,12 @@ type Config struct {
 	ElectionTick  int
 	HeartbeatTick int
 	// MaxBatch caps entries per AppendEntries message.
-	MaxBatch  int
-	Store     LogStore
-	Transport Transport
-	Rand      *rand.Rand
+	MaxBatch int
+	// SnapshotChunk is the payload size of one InstallSnapshot message.
+	SnapshotChunk int
+	Store         LogStore
+	Transport     Transport
+	Rand          *rand.Rand
 }
 
 type Raft struct {
@@ -60,6 +67,7 @@ type Raft struct {
 	electionTick  int
 	heartbeatTick int
 	maxBatch      int
+	snapChunk     int
 
 	term   uint64
 	vote   NodeID
@@ -75,6 +83,31 @@ type Raft struct {
 	// candidate) or sent (leader). timeout is this term's random draw.
 	elapsed int
 	timeout int
+
+	// reads are ReadIndex rounds awaiting a majority of heartbeat
+	// responses; ready holds the rounds that reached it.
+	reads      map[uint64]*readRound
+	nextReadID uint64
+	ready      []ReadReady
+
+	// snapOut tracks one snapshot transfer per follower; snapIn is the
+	// one being received. restored is set for the driver once a received
+	// snapshot has been installed in the store.
+	snapOut  map[NodeID]*snapTransfer
+	snapIn   *snapTransfer
+	restored *snapTransfer
+}
+
+type readRound struct {
+	index uint64
+	acks  map[NodeID]bool
+}
+
+// ReadReady reports that read round ID is safe to serve once the state
+// machine has applied Index.
+type ReadReady struct {
+	ID    uint64
+	Index uint64
 }
 
 func New(cfg Config) (*Raft, error) {
@@ -86,6 +119,9 @@ func New(cfg Config) (*Raft, error) {
 	}
 	if cfg.MaxBatch <= 0 {
 		cfg.MaxBatch = 256
+	}
+	if cfg.SnapshotChunk <= 0 {
+		cfg.SnapshotChunk = 512 << 10
 	}
 	term, vote, err := cfg.Store.State()
 	if err != nil {
@@ -100,6 +136,7 @@ func New(cfg Config) (*Raft, error) {
 		electionTick:  cfg.ElectionTick,
 		heartbeatTick: cfg.HeartbeatTick,
 		maxBatch:      cfg.MaxBatch,
+		snapChunk:     cfg.SnapshotChunk,
 		term:          term,
 		vote:          vote,
 	}
@@ -175,6 +212,7 @@ func (r *Raft) becomeFollower(term uint64, lead NodeID) {
 	r.state = Follower
 	r.lead = lead
 	r.votes, r.next, r.match = nil, nil, nil
+	r.reads, r.snapOut = nil, nil
 	r.resetTimeout()
 }
 
@@ -218,6 +256,8 @@ func (r *Raft) becomeLeader() {
 	for _, p := range r.peers {
 		r.next[p] = last + 1
 	}
+	r.reads = map[uint64]*readRound{}
+	r.snapOut = map[NodeID]*snapTransfer{}
 	// The no-op lets entries from earlier terms commit under the own-term
 	// rule without waiting for a client proposal.
 	r.appendEntries([]Entry{{Type: EntryNoop}})
@@ -251,6 +291,56 @@ func (r *Raft) Propose(payloads [][]byte) (uint64, error) {
 		entries[i] = Entry{Type: EntryNormal, Data: p}
 	}
 	return r.appendEntries(entries), nil
+}
+
+// ReadIndex starts a heartbeat round that confirms this node is still
+// leader. Once a majority answers, the round appears in TakeReady with the
+// commit index recorded here, which any read may then be served at. The
+// leader must have committed an entry of its own term first, or its commit
+// index might still trail what an earlier leader committed.
+func (r *Raft) ReadIndex() (uint64, error) {
+	if r.state != Leader {
+		return 0, ErrNotLeader
+	}
+	if r.termAt(r.commit) != r.term {
+		return 0, ErrLeaderNotReady
+	}
+	r.nextReadID++
+	id := r.nextReadID
+	r.reads[id] = &readRound{index: r.commit, acks: map[NodeID]bool{r.id: true}}
+	if r.quorum() == 1 {
+		r.completeRead(id)
+		return id, nil
+	}
+	for _, p := range r.peers {
+		if p != r.id {
+			r.sendAppend(p, id)
+		}
+	}
+	return id, nil
+}
+
+func (r *Raft) ackRead(id uint64, from NodeID) {
+	round, ok := r.reads[id]
+	if !ok {
+		return
+	}
+	round.acks[from] = true
+	if len(round.acks) >= r.quorum() {
+		r.completeRead(id)
+	}
+}
+
+func (r *Raft) completeRead(id uint64) {
+	r.ready = append(r.ready, ReadReady{ID: id, Index: r.reads[id].index})
+	delete(r.reads, id)
+}
+
+// TakeReady returns and clears the read rounds that reached a majority.
+func (r *Raft) TakeReady() []ReadReady {
+	out := r.ready
+	r.ready = nil
+	return out
 }
 
 func (r *Raft) Step(m Message) {
@@ -427,6 +517,11 @@ func (r *Raft) firstIndexOfTerm(index, term uint64) uint64 {
 }
 
 func (r *Raft) handleAppendResp(m Message) {
+	// Any response in the current term, accepted or not, shows the
+	// follower still recognizes this leader.
+	if m.ReadID != 0 {
+		r.ackRead(m.ReadID, m.From)
+	}
 	if m.Reject {
 		next := m.ConflictIndex
 		if m.ConflictTerm > 0 {

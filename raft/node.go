@@ -36,6 +36,21 @@ func (p *Proposal) finish(result []byte, err error) {
 	close(p.done)
 }
 
+// Read is a ReadIndex request. Once Done closes without error, the state
+// machine has applied everything committed before the read began.
+type Read struct {
+	Index uint64
+	Err   error
+	done  chan struct{}
+}
+
+func (r *Read) Done() <-chan struct{} { return r.done }
+
+func (r *Read) finish(err error) {
+	r.Err = err
+	close(r.done)
+}
+
 // applyBatch bounds how many entries are read from the store per pass.
 const applyBatch = 256
 
@@ -56,6 +71,10 @@ type Node struct {
 	queue   []*Proposal
 	pending map[uint64]*Proposal
 
+	readQueue []*Read
+	reads     map[uint64][]*Read
+	waiting   []*Read
+
 	wake chan struct{}
 	stop chan struct{}
 	done chan struct{}
@@ -75,6 +94,7 @@ func NewNode(cfg NodeConfig) (*Node, error) {
 		tick:    cfg.TickInterval,
 		snapGap: cfg.SnapshotThreshold,
 		pending: make(map[uint64]*Proposal),
+		reads:   make(map[uint64][]*Read),
 		wake:    make(chan struct{}, 1),
 		stop:    make(chan struct{}),
 		done:    make(chan struct{}),
@@ -152,10 +172,29 @@ func (n *Node) Propose(data []byte) *Proposal {
 	return p
 }
 
-// Flush appends every queued proposal as one batch.
+// ReadIndex queues a read for the next Flush and returns a handle.
+func (n *Node) ReadIndex() *Read {
+	rd := &Read{done: make(chan struct{})}
+	n.mu.Lock()
+	n.readQueue = append(n.readQueue, rd)
+	n.mu.Unlock()
+	select {
+	case n.wake <- struct{}{}:
+	default:
+	}
+	return rd
+}
+
+// Flush appends every queued proposal as one batch and starts one
+// ReadIndex round for every queued read.
 func (n *Node) Flush() {
 	n.mu.Lock()
 	defer n.mu.Unlock()
+	n.flushProposals()
+	n.advance()
+}
+
+func (n *Node) flushProposals() {
 	if len(n.queue) == 0 {
 		return
 	}
@@ -183,14 +222,40 @@ func (n *Node) Flush() {
 		p.term = n.r.term
 		n.pending[p.Index] = p
 	}
-	n.advance()
 }
 
-// advance applies newly committed entries and settles proposals. Caller
-// holds mu.
+// startReads opens a round for the queued reads. A leader that has not
+// committed in its term keeps them queued; the next commit retries.
+func (n *Node) startReads() {
+	if len(n.readQueue) == 0 {
+		return
+	}
+	id, err := n.r.ReadIndex()
+	if err == ErrLeaderNotReady {
+		return
+	}
+	queue := n.readQueue
+	n.readQueue = nil
+	if err != nil {
+		for _, rd := range queue {
+			rd.finish(err)
+		}
+		return
+	}
+	n.reads[id] = queue
+}
+
+// advance applies newly committed entries and settles proposals and
+// reads. Caller holds mu.
 func (n *Node) advance() {
 	if n.r.state != Leader {
 		n.failAll(ErrNotLeader)
+	}
+	if idx, data, ok := n.r.TakeRestored(); ok && idx > n.applied {
+		if err := n.sm.Restore(bytes.NewReader(data)); err != nil {
+			panic(fmt.Sprintf("raft: restore snapshot: %v", err))
+		}
+		n.applied = idx
 	}
 	for n.applied < n.r.commit {
 		hi := min(n.r.commit, n.applied+applyBatch)
@@ -214,6 +279,25 @@ func (n *Node) advance() {
 			}
 		}
 	}
+	n.startReads()
+	for _, rr := range n.r.TakeReady() {
+		for _, rd := range n.reads[rr.ID] {
+			rd.Index = rr.Index
+			n.waiting = append(n.waiting, rd)
+		}
+		delete(n.reads, rr.ID)
+	}
+	// A confirmed read stays valid after losing leadership: it names a
+	// fixed point in the log, and the state at that point never changes.
+	kept := n.waiting[:0]
+	for _, rd := range n.waiting {
+		if rd.Index <= n.applied {
+			rd.finish(nil)
+		} else {
+			kept = append(kept, rd)
+		}
+	}
+	n.waiting = kept
 	n.maybeSnapshot()
 }
 
@@ -225,6 +309,16 @@ func (n *Node) failAll(err error) {
 	for idx, p := range n.pending {
 		delete(n.pending, idx)
 		p.finish(nil, err)
+	}
+	for _, rd := range n.readQueue {
+		rd.finish(err)
+	}
+	n.readQueue = nil
+	for id, reads := range n.reads {
+		delete(n.reads, id)
+		for _, rd := range reads {
+			rd.finish(err)
+		}
 	}
 }
 

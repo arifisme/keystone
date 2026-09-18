@@ -4,13 +4,15 @@ import (
 	"bytes"
 	"fmt"
 	"math/rand"
+	"sync"
 	"testing"
 	"time"
 )
 
-// Nodes persist to disk and are killed and restarted at random while
-// clients keep proposing. Every proposal that was acknowledged must be
-// applied, in order, on every node once the cluster settles.
+// Nodes persist to disk and are killed and restarted at random while a
+// client keeps proposing against whichever node is leader. Every proposal
+// that was acknowledged must be applied, in order, on every node once the
+// cluster settles.
 func TestCommittedEntriesSurviveRandomCrashRestarts(t *testing.T) {
 	if testing.Short() {
 		t.Skip("slow")
@@ -18,21 +20,29 @@ func TestCommittedEntriesSurviveRandomCrashRestarts(t *testing.T) {
 	c := newClusterWith(t, 3, true)
 	defer c.stop()
 	rng := rand.New(rand.NewSource(c.seed))
+
+	var mu sync.Mutex
 	var acked [][]byte
-	next := 0
-	deadline := time.Now().Add(8 * time.Second)
-	for time.Now().Before(deadline) {
-		l := c.leader()
-		if l == nil {
-			time.Sleep(time.Millisecond)
-			continue
-		}
-		var batch []*Proposal
-		for i := 0; i < 5; i++ {
-			batch = append(batch, l.Propose([]byte(fmt.Sprintf("op%d", next))))
-			next++
-		}
-		for _, p := range batch {
+	proposed := 0
+	stop := make(chan struct{})
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for i := 0; ; i++ {
+			select {
+			case <-stop:
+				return
+			default:
+			}
+			mu.Lock()
+			l := c.leader()
+			mu.Unlock()
+			if l == nil {
+				time.Sleep(time.Millisecond)
+				continue
+			}
+			p := l.Propose([]byte(fmt.Sprintf("op%d", i)))
 			select {
 			case <-p.Done():
 				if p.Err == nil {
@@ -40,26 +50,33 @@ func TestCommittedEntriesSurviveRandomCrashRestarts(t *testing.T) {
 				}
 			case <-time.After(2 * electionTimeout()):
 			}
+			proposed++
 		}
-		if rng.Intn(4) == 0 {
-			victim := c.ids[rng.Intn(len(c.ids))]
-			if _, alive := c.nodes[victim]; alive {
-				c.kill(victim)
-				time.Sleep(time.Duration(rng.Intn(20)) * time.Millisecond)
-				c.start(victim)
-			}
+	}()
+
+	deadline := time.Now().Add(8 * time.Second)
+	for time.Now().Before(deadline) {
+		time.Sleep(time.Duration(10+rng.Intn(40)) * time.Millisecond)
+		victim := c.ids[rng.Intn(len(c.ids))]
+		mu.Lock()
+		if _, alive := c.nodes[victim]; alive {
+			c.kill(victim)
 		}
+		mu.Unlock()
+		time.Sleep(time.Duration(rng.Intn(30)) * time.Millisecond)
+		mu.Lock()
+		c.start(victim)
+		mu.Unlock()
 	}
-	for _, id := range c.ids {
-		if _, alive := c.nodes[id]; !alive {
-			c.start(id)
-		}
-	}
+	close(stop)
+	wg.Wait()
+
 	if len(acked) == 0 {
 		t.Fatalf("nothing was acknowledged (seed %d)", c.seed)
 	}
+	c.waitSettled(15 * time.Second)
 	for _, id := range c.ids {
-		got := c.waitApplied(id, len(acked), 10*time.Second)
+		got := c.sms[id].entries()
 		gi := 0
 		for _, want := range acked {
 			for gi < len(got) && !bytes.Equal(got[gi].Data, want) {
@@ -71,5 +88,5 @@ func TestCommittedEntriesSurviveRandomCrashRestarts(t *testing.T) {
 			gi++
 		}
 	}
-	t.Logf("%d acknowledged of %d proposed, seed %d", len(acked), next, c.seed)
+	t.Logf("%d acknowledged of %d proposed, seed %d", len(acked), proposed, c.seed)
 }
