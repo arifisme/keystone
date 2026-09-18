@@ -5,9 +5,10 @@ import "sync/atomic"
 // memtable is the mutable in-memory tier. Each memtable corresponds to
 // exactly one WAL segment, so a flushed memtable's segment can be deleted.
 type memtable struct {
-	list *skiplist
-	seg  uint64
-	size atomic.Int64
+	list   *skiplist
+	seg    uint64
+	size   atomic.Int64
+	maxSeq atomic.Uint64
 }
 
 func newMemtable(seed, seg uint64) *memtable {
@@ -22,6 +23,9 @@ func (m *memtable) put(seq uint64, kind keyKind, key, value []byte) {
 	}
 	m.list.insert(ik, v)
 	m.size.Add(int64(len(ik) + len(v) + 64))
+	if seq > m.maxSeq.Load() {
+		m.maxSeq.Store(seq)
+	}
 }
 
 // get returns the newest version of key with sequence <= seq. found is
