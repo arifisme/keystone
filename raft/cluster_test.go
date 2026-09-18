@@ -98,20 +98,32 @@ type cluster struct {
 	t      *testing.T
 	h      *hub
 	ids    []NodeID
-	stores map[NodeID]*MemStore
+	stores map[NodeID]LogStore
+	dirs   map[NodeID]string
 	sms    map[NodeID]*recordingSM
 	nodes  map[NodeID]*Node
 	seed   int64
+	snap   uint64
 }
 
 func newCluster(t *testing.T, n int) *cluster {
+	return newClusterWith(t, n, false)
+}
+
+// newClusterWith builds n nodes; with disk set, each node persists to a
+// DiskStore in its own directory and a restart reopens it, as a real
+// process would. Killing a node always wipes its state machine.
+func newClusterWith(t *testing.T, n int, disk bool) *cluster {
 	t.Helper()
-	c := &cluster{t: t, h: newHub(), stores: map[NodeID]*MemStore{}, sms: map[NodeID]*recordingSM{}, nodes: map[NodeID]*Node{}, seed: time.Now().UnixNano()}
+	c := &cluster{t: t, h: newHub(), stores: map[NodeID]LogStore{}, dirs: map[NodeID]string{}, sms: map[NodeID]*recordingSM{}, nodes: map[NodeID]*Node{}, seed: time.Now().UnixNano()}
 	for i := 1; i <= n; i++ {
 		id := NodeID(i)
 		c.ids = append(c.ids, id)
-		c.stores[id] = NewMemStore()
-		c.sms[id] = &recordingSM{}
+		if disk {
+			c.dirs[id] = t.TempDir()
+		} else {
+			c.stores[id] = NewMemStore()
+		}
 	}
 	for _, id := range c.ids {
 		c.start(id)
@@ -124,6 +136,14 @@ func (c *cluster) start(id NodeID) {
 	c.h.inbox[id] = make(chan Message, 1024)
 	c.h.down[id] = false
 	c.h.mu.Unlock()
+	if dir, ok := c.dirs[id]; ok {
+		s, err := OpenDiskStore(dir)
+		if err != nil {
+			c.t.Fatal(err)
+		}
+		c.stores[id] = s
+	}
+	c.sms[id] = &recordingSM{}
 	node, err := NewNode(NodeConfig{
 		Config: Config{
 			ID:            id,
@@ -134,9 +154,10 @@ func (c *cluster) start(id NodeID) {
 			Transport:     hubTransport{c.h, id},
 			Rand:          rand.New(rand.NewSource(c.seed + int64(id))),
 		},
-		StateMachine: c.sms[id],
-		Clock:        SystemClock{},
-		TickInterval: testTick,
+		StateMachine:      c.sms[id],
+		Clock:             SystemClock{},
+		TickInterval:      testTick,
+		SnapshotThreshold: c.snap,
 	})
 	if err != nil {
 		c.t.Fatal(err)
@@ -151,6 +172,9 @@ func (c *cluster) kill(id NodeID) {
 	c.h.mu.Unlock()
 	c.nodes[id].Stop()
 	delete(c.nodes, id)
+	if s, ok := c.stores[id].(*DiskStore); ok {
+		s.Close()
+	}
 }
 
 func (c *cluster) stop() {
