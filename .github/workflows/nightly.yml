@@ -28,4 +28,4 @@ jobs:
         with:
           go-version-file: go.mod
       - name: simulation, 50000 seeds at full chaos
-        run: go test -run TestSim -seeds=50000 -chaos=3 -timeout 170m ./sim
+        run: go test ./sim -run TestSim -seeds=50000 -chaos=3 -timeout 170m
