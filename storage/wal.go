@@ -63,7 +63,12 @@ type WAL struct {
 	closed  bool
 	stopSyn chan struct{}
 	syncErr error
-	wg      sync.WaitGroup
+	// appendErr is set by a failed write, which may have left part of a
+	// record in the file. Replay stops at a torn record, so a later append
+	// would be acknowledged and then lost; a rotation would leave the torn
+	// record in a segment that is no longer allowed one.
+	appendErr error
+	wg        sync.WaitGroup
 }
 
 // OpenWAL replays every record in dir into replay, in order, and then starts
@@ -220,13 +225,17 @@ func (w *WAL) Append(payloads ...[]byte) (seg uint64, err error) {
 	if w.closed {
 		return 0, errors.New("wal: closed")
 	}
+	if w.appendErr != nil {
+		return 0, w.appendErr
+	}
 	if w.size >= w.opts.SegmentSize {
 		if err := w.rotateLocked(); err != nil {
 			return 0, err
 		}
 	}
 	if _, err := w.file.Write(buf); err != nil {
-		return 0, fmt.Errorf("wal append: %w", err)
+		w.appendErr = fmt.Errorf("wal append: %w", err)
+		return 0, w.appendErr
 	}
 	w.size += int64(len(buf))
 	w.dirty = true
@@ -286,6 +295,9 @@ func (w *WAL) Rotate() (uint64, error) {
 }
 
 func (w *WAL) rotateLocked() error {
+	if w.appendErr != nil {
+		return w.appendErr
+	}
 	if err := w.syncLocked(); err != nil {
 		return err
 	}

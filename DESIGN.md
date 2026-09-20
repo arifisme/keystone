@@ -92,6 +92,11 @@ On open, every segment is replayed. A torn record at the end of the newest
 segment is truncated away; damage anywhere else refuses to open, because a
 gap in the middle of the history would be silent data loss.
 
+A write that fails, on a full disk for instance, can leave part of a
+record in the file. Anything appended behind it would be acknowledged and
+then cut off by the next replay, so after a failed write the log refuses
+every further append and rotation. The next open truncates the tail.
+
 A memtable maps one-to-one to a WAL segment: rotating one rotates the
 other. After a memtable is flushed, `MANIFEST` records the next segment as
 the oldest still needed, and older segments are deleted.
