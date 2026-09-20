@@ -228,7 +228,11 @@ func (s *StateMachine) execute(cmd *pb.Command, index uint64, batch *storage.Bat
 		}
 		res.Kvs = kvs
 	case *pb.Command_Freeze:
-		s.setShard(batch, int(op.Freeze.Shard), shardFrozen)
+		// A move run again after its purge freezes once more. Gone has to
+		// stay gone: a frozen shard answers reads, and its keys are deleted.
+		if shard := int(op.Freeze.Shard); s.shards[shard] != shardGone {
+			s.setShard(batch, shard, shardFrozen)
+		}
 		res.Success = true
 	case *pb.Command_Import:
 		// A shard with a state here other than gone is complete here: it

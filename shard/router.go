@@ -320,10 +320,12 @@ func (r *Router) GetShardMap(ctx context.Context, _ *pb.ShardMapRequest) (*pb.Sh
 
 // MoveShard is a stop-the-shard move: the source group stops writing the
 // shard, its keys are copied into the destination through that group's
-// log, the meta group flips the map entry, and the source drops the keys
-// but keeps the shard closed so a router with a stale map cannot write
-// there. Writes to the shard fail with Unavailable while it moves and
-// clients retry.
+// log, the source drops the keys and closes the shard to reads as well,
+// and only then does the meta group flip the map entry. A router with a
+// stale map is refused by the source from then on, whatever it asks.
+// Writes to the shard fail with Unavailable while it moves, reads for the
+// moment between the purge and the flip, and clients retry. A move that
+// was interrupted is finished by running it again.
 func (r *Router) MoveShard(ctx context.Context, req *pb.MoveShardRequest) (*pb.MoveShardResponse, error) {
 	shard := int(req.Shard)
 	if shard < 0 || shard >= Shards {
@@ -361,12 +363,15 @@ func (r *Router) MoveShard(ctx context.Context, req *pb.MoveShardRequest) (*pb.M
 	if err := r.copyShard(ctx, shard, r.clients[src], src, dest, req.Group); err != nil {
 		return nil, err
 	}
+	// The purge comes before the flip. A frozen source still answers reads,
+	// and a router with the old map would go on reading its copy after the
+	// flip had opened the destination to writes.
+	if _, err := r.admin(ctx, r.clients[src], src, &pb.Command{Op: &pb.Command_Purge{Purge: &pb.PurgeOp{Shard: uint32(shard)}}}); err != nil {
+		return nil, err
+	}
 	m.Groups[shard] = req.Group
 	m.Moving[shard] = 0
 	if _, err := r.swapMap(ctx, marked, m); err != nil {
-		return nil, err
-	}
-	if _, err := r.admin(ctx, r.clients[src], src, &pb.Command{Op: &pb.Command_Purge{Purge: &pb.PurgeOp{Shard: uint32(shard)}}}); err != nil {
 		return nil, err
 	}
 	return &pb.MoveShardResponse{}, nil

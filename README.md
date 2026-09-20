@@ -279,7 +279,8 @@ whose reply was lost is applied exactly once.
   groups merges per-group results and is not one snapshot.
 - No dynamic membership. Group membership is fixed at startup; the
   simplified shard move relocates data between existing groups and stalls
-  writes to that shard while it runs.
+  writes to that shard while it runs, and its reads for the last step. A
+  move that is interrupted has to be run again; it cannot be abandoned.
 - The keys and values of one request may hold 1 MiB at most. The bytes of
   a request travel again inside a log entry and a Raft message, and gRPC
   refuses a message over 4 MiB, so the limit sits well below that.

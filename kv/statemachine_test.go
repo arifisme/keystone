@@ -273,3 +273,21 @@ func TestImportIsRefusedWhileTheShardIsHeldHere(t *testing.T) {
 		t.Fatalf("k = %q after moving back", value())
 	}
 }
+
+// A move run again after its purge freezes the source a second time. The
+// shard has to stay gone: frozen would answer reads, and with its keys
+// deleted the answer would be "not found".
+func TestFreezeLeavesAShardThatIsGoneAlone(t *testing.T) {
+	sm := openSM(t, t.TempDir())
+	shard := uint32(keyhash.ShardOf([]byte("k")))
+	sm.Apply(entry(1, put(0, 0, "k", "v")))
+	sm.Apply(entry(2, &pb.Command{Op: &pb.Command_Freeze{Freeze: &pb.FreezeOp{Shard: shard}}}))
+	if v, found, err := sm.Get([]byte("k")); err != nil || !found || string(v) != "v" {
+		t.Fatalf("frozen shard: k = %q %v %v, want it readable", v, found, err)
+	}
+	sm.Apply(entry(3, &pb.Command{Op: &pb.Command_Purge{Purge: &pb.PurgeOp{Shard: shard}}}))
+	sm.Apply(entry(4, &pb.Command{Op: &pb.Command_Freeze{Freeze: &pb.FreezeOp{Shard: shard}}}))
+	if _, _, err := sm.Get([]byte("k")); err != ErrMoving {
+		t.Fatalf("read after purge and a second freeze: %v, want ErrMoving", err)
+	}
+}

@@ -182,18 +182,33 @@ func steps(f *fakeGroups) string {
 	return strings.Join(f.steps, " ")
 }
 
+// The source gives up the shard before the map sends anyone to the
+// destination. In the other order a router with the old map reads the
+// source's frozen copy while the destination already takes writes.
+func TestMovePurgesTheSourceBeforeTheMapFlips(t *testing.T) {
+	r, f := startFakeMove(t, 5, 0, keysInShard(5, 3, 10))
+	if _, err := r.MoveShard(context.Background(), &pb.MoveShardRequest{Shard: 5, Group: 3}); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := steps(f), "mark freeze@2 import@3 purge@2 flip"; got != want {
+		t.Fatalf("steps = %s, want %s", got, want)
+	}
+}
+
 func TestMoveThatWasInterruptedIsFinishedByRunningItAgain(t *testing.T) {
 	for _, tc := range []struct {
 		name         string
+		pairs        int
 		alreadyHolds bool
 		want         string
 	}{
 		// 12 pairs of 300 KiB are four chunks of three.
-		{"interrupted before the copy finished", false, "freeze@2 import@3 import@3 import@3 import@3 flip purge@2"},
-		{"interrupted after the copy finished", true, "freeze@2 import@3 flip purge@2"},
+		{"interrupted before the copy finished", 12, false, "freeze@2 import@3 import@3 import@3 import@3 purge@2 flip"},
+		{"interrupted after the copy finished", 12, true, "freeze@2 import@3 purge@2 flip"},
+		{"interrupted after the purge", 0, true, "freeze@2 import@3 purge@2 flip"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			r, f := startFakeMove(t, 5, 3, keysInShard(5, 12, 300<<10))
+			r, f := startFakeMove(t, 5, 3, keysInShard(5, tc.pairs, 300<<10))
 			f.alreadyHolds = tc.alreadyHolds
 			if _, err := r.MoveShard(context.Background(), &pb.MoveShardRequest{Shard: 5, Group: 3}); err != nil {
 				t.Fatal(err)

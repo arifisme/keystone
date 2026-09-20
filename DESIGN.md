@@ -345,18 +345,29 @@ router receives it:
    request limit, whichever comes first, so neither can outgrow a gRPC
    message however large the values are. The last chunk opens the shard
    there.
-4. The map entry is flipped with another compare-and-swap against the
+4. A purge command through the source group's log deletes the keys and
+   marks the shard gone. The source refuses reads and writes for it from
+   then on, until the shard is one day imported back, so a router still
+   holding the old map gets nothing from it.
+5. The map entry is flipped with another compare-and-swap against the
    bytes written in step 1.
-5. A purge command through the source group's log deletes the keys and
-   marks the shard gone. Gone is permanent: the source keeps refusing
-   writes for that shard, so a router still holding the old map cannot
-   land a write there. Reads of a gone shard are refused too.
+
+The purge comes before the flip because a frozen source still answers
+reads. Flipping first leaves a moment, and after a mover's crash up to a
+second, in which a router with the old map reads the source's copy while
+the destination already takes writes: a stale read, in a store whose
+point is that there are none. The price is that reads of the shard
+stall, like its writes, from the purge to the flip. The copy in the
+source is given up only once the destination has all of it through its
+own log. This is the order of the MIT 6.5840 sharding lab: freeze,
+install, delete, then publish the new configuration.
 
 A move that is interrupted, by the router dying or the caller's deadline
 passing, leaves the shard frozen and the map marked. Running the same
 move again finishes it: a map that already names the move skips step 1,
 and every other step can be taken twice. Freezing and purging are
-idempotent, and a chunk imported again carries the same frozen values.
+idempotent, a freeze leaves a shard that is already gone alone, and a
+chunk imported again carries the same frozen values.
 The one thing that must not happen is a chunk landing after the import
 has finished, because clients write to the destination from then on. So
 a group refuses an import for a shard it holds, and the refusal tells the
@@ -368,8 +379,8 @@ cover a request delayed across two whole moves of the same shard.
 Routers refresh the map every second and immediately when a group
 answers "moving"; they retry the request against the new group a few
 times and otherwise report Unavailable, which the client library retries
-with backoff. So during a move, writes to that shard stall and every
-other shard is untouched.
+with backoff. So during a move, writes to that shard stall, its reads
+stall for the last step, and every other shard is untouched.
 
 Each group keeps its own session table. A write to the moving shard whose
 reply was lost, retried after the flip, reaches a destination that has

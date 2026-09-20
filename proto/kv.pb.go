@@ -385,8 +385,9 @@ func (x *ImportOp) GetLast() bool {
 	return false
 }
 
-// PurgeOp deletes a shard's keys after it has moved away; the shard stays
-// closed here so a stale router cannot write to it.
+// PurgeOp deletes a shard's keys once the destination holds them, before the
+// map sends anyone there; the shard stays closed here so a stale router can
+// neither read nor write it.
 type PurgeOp struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Shard         uint32                 `protobuf:"varint,1,opt,name=shard,proto3" json:"shard,omitempty"`

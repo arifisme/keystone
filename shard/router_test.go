@@ -410,8 +410,20 @@ func TestMoveShardHoldingMoreThanOneMessageCanCarry(t *testing.T) {
 }
 
 // The test takes the first steps of a move by hand and stops, which is
-// the state a router leaves behind when it dies in the middle of the copy.
-func TestMoveShardInterruptedHalfwayIsFinishedByRunningItAgain(t *testing.T) {
+// the state a router leaves behind when it dies there.
+func TestMoveShardThatWasInterruptedIsFinishedByRunningItAgain(t *testing.T) {
+	for _, tc := range []struct {
+		name         string
+		throughPurge bool
+	}{
+		{"in the middle of the copy", false},
+		{"after the purge, before the map flipped", true},
+	} {
+		t.Run(tc.name, func(t *testing.T) { testInterruptedMove(t, tc.throughPurge) })
+	}
+}
+
+func testInterruptedMove(t *testing.T, throughPurge bool) {
 	c := startSharded(t)
 	cl := c.dial(3, 6)
 	ctx := context.Background()
@@ -460,7 +472,12 @@ func TestMoveShardInterruptedHalfwayIsFinishedByRunningItAgain(t *testing.T) {
 		}
 	}
 	admin(srcClient, src, &pb.Command{Op: &pb.Command_Freeze{Freeze: &pb.FreezeOp{Shard: uint32(shard)}}})
-	admin(destClient, dest, &pb.Command{Op: &pb.Command_Import{Import: &pb.ImportOp{Shard: uint32(shard), Kvs: pairs[:10]}}})
+	if throughPurge {
+		admin(destClient, dest, &pb.Command{Op: &pb.Command_Import{Import: &pb.ImportOp{Shard: uint32(shard), Kvs: pairs, Last: true}}})
+		admin(srcClient, src, &pb.Command{Op: &pb.Command_Purge{Purge: &pb.PurgeOp{Shard: uint32(shard)}}})
+	} else {
+		admin(destClient, dest, &pb.Command{Op: &pb.Command_Import{Import: &pb.ImportOp{Shard: uint32(shard), Kvs: pairs[:10]}}})
+	}
 
 	stuck, cancel := context.WithTimeout(ctx, time.Second)
 	if err := cl.Put(stuck, pairs[0].Key, []byte("while stuck")); err == nil {
