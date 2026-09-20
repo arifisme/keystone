@@ -209,6 +209,7 @@ func (c *Client) handleFailure(addr string, err error) error {
 			}
 		}
 		c.leader = ""
+		c.next++
 		return err
 	case codes.Unavailable, codes.DeadlineExceeded, codes.Canceled:
 		c.leader = ""
