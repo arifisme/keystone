@@ -90,7 +90,10 @@ rest. This is what keeps `SyncAlways` usable under load.
 
 On open, every segment is replayed. A torn record at the end of the newest
 segment is truncated away; damage anywhere else refuses to open, because a
-gap in the middle of the history would be silent data loss.
+gap in the middle of the history would be silent data loss. The newest
+segment is synced once it has been replayed: after a process crash its
+tail may be in the page cache only, and the segment started next turns it
+into an older one, which is not allowed a torn tail.
 
 A write that fails, on a full disk for instance, can leave part of a
 record in the file. Anything appended behind it would be acknowledged and

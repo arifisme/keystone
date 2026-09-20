@@ -146,6 +146,14 @@ func replaySegment(path string, seg uint64, last bool, replay func(uint64, []byt
 	for {
 		if _, err := io.ReadFull(f, header[:]); err != nil {
 			if err == io.EOF {
+				if last {
+					// After a process crash the tail just replayed may
+					// exist only in the page cache. The caller now acts on
+					// it, and the next segment makes this one an older
+					// segment, where a tail torn by a power loss is
+					// corruption instead of something to truncate.
+					return f.Sync()
+				}
 				return nil
 			}
 			return truncateTorn(f, path, off, last, err)
