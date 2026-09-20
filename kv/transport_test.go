@@ -114,3 +114,50 @@ func TestTransportKeepsGroupsApart(t *testing.T) {
 	case <-time.After(50 * time.Millisecond):
 	}
 }
+
+// The redial delay grows while a peer is unreachable. Once a connection has
+// worked, the next break has to start again from the short delay: a peer
+// that restarts is waiting for heartbeats, and hears nothing for longer
+// than its election timeout if the leader sits out the long one.
+func TestTransportRedialsSoonAfterAConnectionThatWorked(t *testing.T) {
+	peers := map[raft.NodeID]string{1: freeAddr(t), 2: freeAddr(t)}
+	t1 := NewTransport(1, peers)
+	defer t1.Close()
+	g1 := t1.Group(7)
+	send := func() {
+		g1.Send(2, raft.Message{Type: raft.MsgApp, From: 1, To: 2, Term: 1})
+	}
+	waitFor := func(tr *Transport, within time.Duration) bool {
+		recv := tr.Group(7).Recv()
+		deadline := time.After(within)
+		for {
+			send()
+			select {
+			case <-recv:
+				return true
+			case <-deadline:
+				return false
+			case <-time.After(20 * time.Millisecond):
+			}
+		}
+	}
+
+	// Nobody listens for 1.6 s: redials at 0.1, 0.3, 0.7 and 1.5 s fail and
+	// leave the delay at 1.6 s.
+	time.Sleep(1600 * time.Millisecond)
+	t2 := NewTransport(2, peers)
+	defer t2.Close()
+	s2 := serveTransport(t, t2, peers[2])
+	if !waitFor(t2, 5*time.Second) {
+		t.Fatal("never connected")
+	}
+
+	s2.Stop()
+	t2b := NewTransport(2, peers)
+	defer t2b.Close()
+	s2b := serveTransport(t, t2b, peers[2])
+	defer s2b.Stop()
+	if !waitFor(t2b, time.Second) {
+		t.Fatal("no message within a second of the peer coming back")
+	}
+}

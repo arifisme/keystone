@@ -93,13 +93,19 @@ func (g *groupTransport) Recv() <-chan raft.Message {
 }
 
 // deliver owns the connection to one peer, reopening the stream after
-// any failure with backoff.
+// any failure with backoff. The backoff starts over once a connection has
+// worked: a peer that restarts must hear from the leader again before its
+// election timeout, not after the delay its downtime built up.
 func (t *Transport) deliver(addr string, q <-chan *pb.RaftMessage) {
 	defer t.wg.Done()
 	delay := redialDelay
 	for {
-		if err := t.stream(addr, q); err == nil {
+		connected, err := t.stream(addr, q)
+		if err == nil {
 			return
+		}
+		if connected {
+			delay = redialDelay
 		}
 		select {
 		case <-t.ctx.Done():
@@ -112,25 +118,27 @@ func (t *Transport) deliver(addr string, q <-chan *pb.RaftMessage) {
 	}
 }
 
-// stream sends until the stream breaks; a nil return means shutdown.
-func (t *Transport) stream(addr string, q <-chan *pb.RaftMessage) error {
+// stream sends until the stream breaks; a nil error means shutdown. It
+// reports whether the peer was reached: opening the stream waits for the
+// connection, so a stream that opened had one.
+func (t *Transport) stream(addr string, q <-chan *pb.RaftMessage) (connected bool, err error) {
 	conn, err := grpc.NewClient(addr, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
-		return err
+		return false, err
 	}
 	defer conn.Close()
 	st, err := pb.NewRaftClient(conn).Stream(t.ctx)
 	if err != nil {
-		return err
+		return false, err
 	}
 	for {
 		select {
 		case <-t.ctx.Done():
 			st.CloseSend()
-			return nil
+			return true, nil
 		case m := <-q:
 			if err := st.Send(m); err != nil {
-				return err
+				return true, err
 			}
 		}
 	}
