@@ -315,6 +315,31 @@ func TestDBKeepsTableCountBounded(t *testing.T) {
 	}
 }
 
+func TestDBCompactionDeletesItsInputFiles(t *testing.T) {
+	dir := t.TempDir()
+	d, err := Open(dir, Options{MemtableSize: 1 << 10, BlockSize: 256, Sync: SyncInterval(time.Millisecond)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer d.Close()
+	rng := rand.New(rand.NewSource(1))
+	for i := 0; i < 3000; i++ {
+		d.Put([]byte(fmt.Sprintf("k%d", rng.Intn(500))), make([]byte, rng.Intn(100)))
+	}
+	waitIdle(t, d)
+	st := d.Stats()
+	if st.Compactions == 0 {
+		t.Fatal("no compaction ran")
+	}
+	files, err := filepath.Glob(filepath.Join(dir, "*.sst"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(files) != st.Tables {
+		t.Fatalf("%d table files on disk for %d live tables after %d compactions", len(files), st.Tables, st.Compactions)
+	}
+}
+
 func TestDBConcurrentReadersAndWriters(t *testing.T) {
 	d, err := Open(t.TempDir(), Options{MemtableSize: 16 << 10, BlockSize: 512, Sync: SyncInterval(time.Millisecond)})
 	if err != nil {

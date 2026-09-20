@@ -109,13 +109,15 @@ func (d *db) compactLocked(inputs []*table) error {
 		return err
 	}
 
+	// Marked before install: install drops the old version's reference,
+	// usually the last one, and unref unlinks only a table already marked.
+	for _, t := range inputs {
+		t.gone.Store(true)
+	}
 	d.mu.Lock()
 	d.install(d.current.withCompacted(inputs, out))
 	d.bgCond.Broadcast()
 	d.mu.Unlock()
-	for _, t := range inputs {
-		t.gone.Store(true)
-	}
 	if out != nil {
 		out.unref()
 	}
