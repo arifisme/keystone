@@ -148,6 +148,31 @@ func TestTableDetectsCorruptBlock(t *testing.T) {
 	}
 }
 
+func TestTableRejectsAFooterThatPointsOutsideTheFile(t *testing.T) {
+	// The high byte of each of the footer's two offsets and two sizes.
+	for _, footerByte := range []int64{7, 15, 23, 31} {
+		t.Run(fmt.Sprintf("footer byte %d", footerByte), func(t *testing.T) {
+			dir := t.TempDir()
+			tb, _ := writeTestTable(t, dir, 100, 512)
+			size := tb.size
+			tb.unref()
+			path := tablePath(dir, 1)
+			f, err := os.OpenFile(path, os.O_WRONLY, 0)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := f.WriteAt([]byte{0x40}, size-footerSize+footerByte); err != nil {
+				t.Fatal(err)
+			}
+			f.Close()
+			if tb, err := openTable(path, tableMeta{num: 1}); err == nil {
+				tb.unref()
+				t.Fatal("opened a table whose footer points outside the file")
+			}
+		})
+	}
+}
+
 func TestTableUnlinkedOnlyAfterLastReaderCloses(t *testing.T) {
 	dir := t.TempDir()
 	tb, _ := writeTestTable(t, dir, 10, 512)

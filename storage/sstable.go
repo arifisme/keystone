@@ -262,6 +262,10 @@ func (t *table) readFooter() error {
 }
 
 func (t *table) readBlock(h blockHandle) ([]byte, error) {
+	// The footer carries no checksum, and make panics on a wild size.
+	if h.offset > uint64(t.size) || h.size > uint64(t.size)-h.offset {
+		return nil, errBadTable
+	}
 	buf := make([]byte, h.size+4)
 	if _, err := t.r.ReadAt(buf, int64(h.offset)); err != nil {
 		if err == io.EOF {
