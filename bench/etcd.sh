@@ -2,7 +2,7 @@
 # Reference numbers from etcd on the same machine, using etcd's own
 # benchmark tool so the client side is etcd's native gRPC path.
 #
-#   ETCD=/path/to/etcd BENCHMARK=/path/to/benchmark ./bench/etcd.sh results/etcd
+#   ETCD=/path/to/etcd BENCHMARK=/path/to/benchmark ./bench/etcd.sh bench/results/etcd
 #
 # benchmark comes from the etcd source tree: go build ./tools/benchmark
 set -euo pipefail

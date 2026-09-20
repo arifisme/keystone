@@ -4,8 +4,8 @@ A distributed, persistent, linearizable key-value store written from
 scratch in Go: Raft consensus on top of a custom LSM-tree storage engine,
 sharded across Raft groups, with a deterministic simulator that checks
 every run against Porcupine. No Raft library, no storage engine, no
-hashing or skip list library; the only dependencies are gRPC, protobuf
-and the Prometheus client.
+hashing or skip list library; the only dependencies are gRPC, protobuf,
+the Prometheus client, and Porcupine for the simulator's check.
 
 ```
                  keystonectl / client library
@@ -48,7 +48,7 @@ Without Docker, the same cluster is nine processes:
 
 ```
 go build ./cmd/keystone
-keystone -id 1 -peers 1=127.0.0.1:7101,...,9=127.0.0.1:7109 \
+./keystone -id 1 -peers 1=127.0.0.1:7101,...,9=127.0.0.1:7109 \
          -groups "1:1,2,3;2:1,2,3;3:4,5,6;4:7,8,9" -data data/n1
 ```
 

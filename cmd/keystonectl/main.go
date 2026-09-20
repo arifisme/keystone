@@ -4,7 +4,7 @@
 //	keystonectl put KEY VALUE
 //	keystonectl delete KEY
 //	keystonectl cas KEY EXPECTED VALUE      (EXPECTED "-" means absent)
-//	keystonectl scan [START [END]] [-limit N]
+//	keystonectl [-limit N] scan [START [END]]
 //	keystonectl shards                       (sharded clusters: print the shard map)
 //	keystonectl move SHARD GROUP             (sharded clusters: move a shard)
 package main

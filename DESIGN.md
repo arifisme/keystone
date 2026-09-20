@@ -55,7 +55,7 @@ simulator can replace all of them:
 |----------------|--------------------------------|-----------------------------------|
 | `Transport`    | gRPC streams between peers     | priority queue of in-flight msgs  |
 | `Clock`        | `time.Now`, `time.After`       | logical time, stepped by the loop |
-| `LogStore`     | WAL segments + state file      | in-memory with modeled durability |
+| `LogStore`     | WAL segments + snapshot file   | in-memory with modeled durability |
 | `StateMachine` | kv engine over `storage`       | same code, in-memory `storage`    |
 
 Randomness is a single seeded `*rand.Rand` handed in at construction.
@@ -254,7 +254,7 @@ for a snapshot and compacts the log behind it. The key-value state
 machine's snapshot is an SSTable produced by the engine's `Export`: one
 sequential pass that keeps the newest version of every key and drops
 tombstones. Restoring installs that file as the only live table, which is
-a rename and a manifest write rather than a re-insert of every key.
+a WAL rotation and a manifest write rather than a re-insert of every key.
 
 A follower too far behind receives the snapshot in chunks with one in
 flight at a time. Each chunk is acknowledged with the offset expected
@@ -280,8 +280,9 @@ from the last snapshot.
 
 Servers answer a request they cannot serve with `FailedPrecondition` and
 a `NotLeader` detail naming the leader's id and address. The client
-switches to that address and retries at once; a connection failure moves
-it to the next endpoint with capped exponential backoff.
+switches to that address and retries at once; a connection failure, or an
+answer from a node that knows no leader, moves it to the next endpoint
+with capped exponential backoff.
 
 ## Sharding
 
