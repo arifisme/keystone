@@ -6,10 +6,13 @@ import (
 	"fmt"
 	"net"
 	"sort"
+	"strings"
 	"sync"
 	"testing"
 
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
 
 	"github.com/arifisme/keystone/kv"
@@ -170,5 +173,50 @@ func TestMoveCopiesLargeValuesInRequestsGRPCWillCarry(t *testing.T) {
 	}
 	if want := 12 * (300<<10 + len("key0")); total < want {
 		t.Fatalf("imported %d bytes, the shard holds at least %d", total, want)
+	}
+}
+
+func steps(f *fakeGroups) string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return strings.Join(f.steps, " ")
+}
+
+func TestMoveThatWasInterruptedIsFinishedByRunningItAgain(t *testing.T) {
+	for _, tc := range []struct {
+		name         string
+		alreadyHolds bool
+		want         string
+	}{
+		// 12 pairs of 300 KiB are four chunks of three.
+		{"interrupted before the copy finished", false, "freeze@2 import@3 import@3 import@3 import@3 flip purge@2"},
+		{"interrupted after the copy finished", true, "freeze@2 import@3 flip purge@2"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			r, f := startFakeMove(t, 5, 3, keysInShard(5, 12, 300<<10))
+			f.alreadyHolds = tc.alreadyHolds
+			if _, err := r.MoveShard(context.Background(), &pb.MoveShardRequest{Shard: 5, Group: 3}); err != nil {
+				t.Fatal(err)
+			}
+			if got := steps(f); got != tc.want {
+				t.Fatalf("steps = %s\n        want %s", got, tc.want)
+			}
+			var m pb.ShardMap
+			proto.Unmarshal(f.shardMap, &m)
+			if m.Groups[5] != 3 || m.Moving[5] != 0 {
+				t.Fatalf("map entry = group %d, moving to %d", m.Groups[5], m.Moving[5])
+			}
+		})
+	}
+}
+
+func TestMoveIsRefusedWhileTheShardIsMovingSomewhereElse(t *testing.T) {
+	r, f := startFakeMove(t, 5, 4, keysInShard(5, 3, 10))
+	_, err := r.MoveShard(context.Background(), &pb.MoveShardRequest{Shard: 5, Group: 3})
+	if status.Code(err) != codes.FailedPrecondition {
+		t.Fatalf("err = %v, want FailedPrecondition", err)
+	}
+	if got := steps(f); got != "" {
+		t.Fatalf("steps = %s, want none", got)
 	}
 }

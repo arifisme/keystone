@@ -21,7 +21,7 @@ import (
 //	'k' user key            value
 //	's' client id (8 bytes) seq (8 bytes) | cached Result
 //	'm' "applied"           last applied index (8 bytes)
-//	'm' "shard/" + n        shard state: 1 frozen, 2 gone
+//	'm' "shard/" + n        shard state: 0 open after an import, 1 frozen, 2 gone
 //
 // Every Apply writes its effects, the session update and the applied
 // index in one batch, so a crash can never leave the state machine
@@ -231,6 +231,14 @@ func (s *StateMachine) execute(cmd *pb.Command, index uint64, batch *storage.Bat
 		s.setShard(batch, int(op.Freeze.Shard), shardFrozen)
 		res.Success = true
 	case *pb.Command_Import:
+		// A shard with a state here other than gone is complete here: it
+		// was imported to the end, or it started here and is frozen for a
+		// move away. Clients may have written to it since, so a chunk that
+		// arrives now, late or from a move run twice, must not land.
+		// Success stays false, which tells the mover the copy is complete.
+		if state, ok := s.shards[int(op.Import.Shard)]; ok && state != shardGone {
+			break
+		}
 		for _, kv := range op.Import.Kvs {
 			batch.Put(userKey(kv.Key), kv.Value)
 		}

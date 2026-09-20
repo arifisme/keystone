@@ -7,6 +7,7 @@ import (
 
 	"google.golang.org/protobuf/proto"
 
+	"github.com/arifisme/keystone/internal/keyhash"
 	"github.com/arifisme/keystone/proto"
 	"github.com/arifisme/keystone/raft"
 	"github.com/arifisme/keystone/storage"
@@ -220,5 +221,55 @@ func TestScanStopsWithThePairThatReachesTheByteBound(t *testing.T) {
 	res := result(t, sm.Apply(entry(5, &pb.Command{Op: &pb.Command_Scan{Scan: &pb.ScanOp{MaxBytes: 7}}})))
 	if len(res.Kvs) != 2 {
 		t.Fatalf("scan through the log with 7 bytes: %d pairs, want 2", len(res.Kvs))
+	}
+}
+
+func importOp(shard int, last bool, key, value string) *pb.Command {
+	return &pb.Command{Op: &pb.Command_Import{Import: &pb.ImportOp{
+		Shard: uint32(shard),
+		Kvs:   []*pb.KeyValue{{Key: []byte(key), Value: []byte(value)}},
+		Last:  last,
+	}}}
+}
+
+// A late or repeated chunk carries the source's frozen copy. Once the
+// import has finished, clients write here, and the chunk would put an old
+// value over a new one.
+func TestImportIsRefusedWhileTheShardIsHeldHere(t *testing.T) {
+	sm := openSM(t, t.TempDir())
+	shard := keyhash.ShardOf([]byte("k"))
+	value := func() string {
+		t.Helper()
+		v, _, err := sm.Get([]byte("k"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return string(v)
+	}
+
+	if !result(t, sm.Apply(entry(1, importOp(shard, false, "k", "copied")))).Success {
+		t.Fatal("first chunk refused")
+	}
+	if !result(t, sm.Apply(entry(2, importOp(shard, false, "k", "copied")))).Success {
+		t.Fatal("repeated chunk refused before the import finished")
+	}
+	if !result(t, sm.Apply(entry(3, importOp(shard, true, "k", "copied")))).Success {
+		t.Fatal("last chunk refused")
+	}
+	sm.Apply(entry(4, put(0, 0, "k", "written after the move")))
+	if result(t, sm.Apply(entry(5, importOp(shard, false, "k", "copied")))).Success || value() != "written after the move" {
+		t.Fatalf("late chunk accepted over a newer value: k = %q", value())
+	}
+
+	sm.Apply(entry(6, &pb.Command{Op: &pb.Command_Freeze{Freeze: &pb.FreezeOp{Shard: uint32(shard)}}}))
+	if result(t, sm.Apply(entry(7, importOp(shard, false, "k", "copied")))).Success {
+		t.Fatal("chunk accepted into a shard that is being moved away")
+	}
+	sm.Apply(entry(8, &pb.Command{Op: &pb.Command_Purge{Purge: &pb.PurgeOp{Shard: uint32(shard)}}}))
+	if !result(t, sm.Apply(entry(9, importOp(shard, true, "k", "moved back")))).Success {
+		t.Fatal("import refused after the shard had left")
+	}
+	if value() != "moved back" {
+		t.Fatalf("k = %q after moving back", value())
 	}
 }

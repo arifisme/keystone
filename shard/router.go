@@ -341,16 +341,19 @@ func (r *Router) MoveShard(ctx context.Context, req *pb.MoveShardRequest) (*pb.M
 	if src == req.Group {
 		return &pb.MoveShardResponse{}, nil
 	}
-	if m.Moving[shard] != 0 {
-		return nil, status.Errorf(codes.FailedPrecondition, "shard %d is already moving to group %d", shard, m.Moving[shard])
+	if m.Moving[shard] != 0 && m.Moving[shard] != req.Group {
+		return nil, status.Errorf(codes.FailedPrecondition, "shard %d is moving to group %d; run that move again to finish it first", shard, m.Moving[shard])
 	}
 	r.mu.RLock()
-	before := r.raw
+	marked := r.raw
 	r.mu.RUnlock()
-	m.Moving[shard] = req.Group
-	marked, err := r.swapMap(ctx, before, m)
-	if err != nil {
-		return nil, err
+	// A map that already names this move is one that was interrupted, and
+	// every step below can be taken a second time.
+	if m.Moving[shard] == 0 {
+		m.Moving[shard] = req.Group
+		if marked, err = r.swapMap(ctx, marked, m); err != nil {
+			return nil, err
+		}
 	}
 	if _, err := r.admin(ctx, r.clients[src], src, &pb.Command{Op: &pb.Command_Freeze{Freeze: &pb.FreezeOp{Shard: uint32(shard)}}}); err != nil {
 		return nil, err
@@ -418,10 +421,15 @@ func (r *Router) copyShard(ctx context.Context, shard int, src *kv.Client, srcID
 	var start []byte
 	var chunk []*pb.KeyValue
 	chunkBytes := 0
-	flush := func(last bool) error {
-		_, err := r.admin(ctx, dest, destID, &pb.Command{Op: &pb.Command_Import{Import: &pb.ImportOp{Shard: uint32(shard), Kvs: chunk, Last: last}}})
+	// held reports that the destination refused the chunk because it holds
+	// the whole shard already, from an earlier run of this move.
+	flush := func(last bool) (held bool, err error) {
+		res, err := r.admin(ctx, dest, destID, &pb.Command{Op: &pb.Command_Import{Import: &pb.ImportOp{Shard: uint32(shard), Kvs: chunk, Last: last}}})
 		chunk, chunkBytes = nil, 0
-		return err
+		if err != nil {
+			return false, err
+		}
+		return !res.Success, nil
 	}
 	for {
 		var page []*pb.KeyValue
@@ -437,7 +445,8 @@ func (r *Router) copyShard(ctx context.Context, shard int, src *kv.Client, srcID
 			return err
 		}
 		if len(page) == 0 {
-			return flush(true)
+			_, err := flush(true)
+			return err
 		}
 		for _, pair := range page {
 			if ShardOf(pair.Key) != shard {
@@ -445,7 +454,7 @@ func (r *Router) copyShard(ctx context.Context, shard int, src *kv.Client, srcID
 			}
 			size := len(pair.Key) + len(pair.Value)
 			if len(chunk) >= importChunk || (len(chunk) > 0 && chunkBytes+size > kv.MaxRequestBytes) {
-				if err := flush(false); err != nil {
+				if held, err := flush(false); err != nil || held {
 					return err
 				}
 			}

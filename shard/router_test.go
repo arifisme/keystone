@@ -8,6 +8,8 @@ import (
 	"testing"
 	"time"
 
+	"google.golang.org/protobuf/proto"
+
 	"github.com/arifisme/keystone/kv"
 	"github.com/arifisme/keystone/proto"
 	"github.com/arifisme/keystone/raft"
@@ -404,5 +406,89 @@ func TestMoveShardHoldingMoreThanOneMessageCanCarry(t *testing.T) {
 		if err != nil || !found || len(v) != len(p.Value) {
 			t.Fatalf("%s in destination: %d bytes, found %v, %v", p.Key, len(v), found, err)
 		}
+	}
+}
+
+// The test takes the first steps of a move by hand and stops, which is
+// the state a router leaves behind when it dies in the middle of the copy.
+func TestMoveShardInterruptedHalfwayIsFinishedByRunningItAgain(t *testing.T) {
+	c := startSharded(t)
+	cl := c.dial(3, 6)
+	ctx := context.Background()
+	shard := 5
+	src := DefaultMap([]uint64{2, 3, 4}).Groups[shard]
+	dest := uint64(2)
+	if src == dest {
+		dest = 3
+	}
+	pairs := keysInShard(shard, 20, 10)
+	for _, p := range pairs {
+		if err := cl.Put(ctx, p.Key, p.Value); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	meta, srcClient, destClient := c.direct(MetaGroup), c.direct(src), c.direct(dest)
+	err := meta.Do(ctx, func(ctx context.Context, cli pb.KVClient) error {
+		got, err := cli.Get(ctx, &pb.GetRequest{Key: mapKey, Mode: pb.ReadMode_LOG, Group: MetaGroup})
+		if err != nil {
+			return err
+		}
+		var m pb.ShardMap
+		if err := proto.Unmarshal(got.Value, &m); err != nil {
+			return err
+		}
+		m.Moving[shard] = dest
+		marked, _ := proto.Marshal(&m)
+		res, err := cli.Cas(ctx, &pb.CasRequest{Key: mapKey, Expected: got.Value, Value: marked, Group: MetaGroup})
+		if err == nil && !res.Success {
+			t.Fatal("could not mark the map")
+		}
+		return err
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	admin := func(dc *kv.Client, g uint64, cmd *pb.Command) {
+		t.Helper()
+		err := dc.Do(ctx, func(ctx context.Context, cli pb.KVClient) error {
+			_, err := cli.Admin(ctx, &pb.AdminRequest{Group: g, Command: cmd})
+			return err
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	admin(srcClient, src, &pb.Command{Op: &pb.Command_Freeze{Freeze: &pb.FreezeOp{Shard: uint32(shard)}}})
+	admin(destClient, dest, &pb.Command{Op: &pb.Command_Import{Import: &pb.ImportOp{Shard: uint32(shard), Kvs: pairs[:10]}}})
+
+	stuck, cancel := context.WithTimeout(ctx, time.Second)
+	if err := cl.Put(stuck, pairs[0].Key, []byte("while stuck")); err == nil {
+		t.Fatal("test setup: the shard should refuse writes until the move is finished")
+	}
+	cancel()
+
+	// The client retries a refusal as if it were a leader change, so a
+	// move that is refused shows up as this deadline passing.
+	again, cancel := context.WithTimeout(ctx, 15*time.Second)
+	defer cancel()
+	err = cl.Do(again, func(ctx context.Context, cli pb.KVClient) error {
+		_, err := cli.MoveShard(ctx, &pb.MoveShardRequest{Shard: uint32(shard), Group: dest})
+		return err
+	})
+	if err != nil {
+		t.Fatalf("running the move again: %v", err)
+	}
+	for _, p := range pairs {
+		v, found, err := directGet(t, destClient, dest, string(p.Key))
+		if err != nil || !found || v != string(p.Value) {
+			t.Fatalf("%s in destination = %q %v %v", p.Key, v, found, err)
+		}
+	}
+	if err := cl.Put(ctx, pairs[0].Key, []byte("after")); err != nil {
+		t.Fatalf("write after the move was finished: %v", err)
+	}
+	if v, found, _ := directGet(t, destClient, dest, string(pairs[0].Key)); !found || v != "after" {
+		t.Fatalf("write after the move landed elsewhere: %q %v", v, found)
 	}
 }

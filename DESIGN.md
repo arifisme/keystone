@@ -335,7 +335,8 @@ scan across shards is not one snapshot.
 router receives it:
 
 1. The meta group's map is updated with a compare-and-swap to say the
-   shard is moving, so a second move of the same shard is refused.
+   shard is moving, so a move of the same shard to another group is
+   refused.
 2. A freeze command goes through the source group's log. From then on the
    source answers writes to that shard with "moving"; reads still work.
 3. The router pages through the source group, keeps the keys that hash
@@ -350,6 +351,19 @@ router receives it:
    marks the shard gone. Gone is permanent: the source keeps refusing
    writes for that shard, so a router still holding the old map cannot
    land a write there. Reads of a gone shard are refused too.
+
+A move that is interrupted, by the router dying or the caller's deadline
+passing, leaves the shard frozen and the map marked. Running the same
+move again finishes it: a map that already names the move skips step 1,
+and every other step can be taken twice. Freezing and purging are
+idempotent, and a chunk imported again carries the same frozen values.
+The one thing that must not happen is a chunk landing after the import
+has finished, because clients write to the destination from then on. So
+a group refuses an import for a shard it holds, and the refusal tells the
+mover that an earlier run completed the copy. There is no way to abandon
+a move halfway; the MIT 6.5840 sharding lab, which this follows, fences
+stale requests with a configuration number instead, which would also
+cover a request delayed across two whole moves of the same shard.
 
 Routers refresh the map every second and immediately when a group
 answers "moving"; they retry the request against the new group a few
