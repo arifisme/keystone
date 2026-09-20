@@ -340,7 +340,10 @@ router receives it:
    source answers writes to that shard with "moving"; reads still work.
 3. The router pages through the source group, keeps the keys that hash
    to the shard, and imports them into the destination through its log in
-   chunks of a thousand. The last chunk opens the shard there.
+   chunks. A page and a chunk end at a thousand keys or at 1 MiB, the
+   request limit, whichever comes first, so neither can outgrow a gRPC
+   message however large the values are. The last chunk opens the shard
+   there.
 4. The map entry is flipped with another compare-and-swap against the
    bytes written in step 1.
 5. A purge command through the source group's log deletes the keys and

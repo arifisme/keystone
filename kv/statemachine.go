@@ -222,7 +222,7 @@ func (s *StateMachine) execute(cmd *pb.Command, index uint64, batch *storage.Bat
 		}
 		res.Found, res.Value = found, cur
 	case *pb.Command_Scan:
-		kvs, err := s.scan(op.Scan.Start, op.Scan.End, int(op.Scan.Limit))
+		kvs, err := s.scan(op.Scan.Start, op.Scan.End, int(op.Scan.Limit), int(op.Scan.MaxBytes))
 		if err != nil {
 			panic(fmt.Sprintf("kv: scan: %v", err))
 		}
@@ -263,18 +263,24 @@ func (s *StateMachine) get(key []byte) ([]byte, bool, error) {
 	return v, err == nil, err
 }
 
-func (s *StateMachine) scan(start, end []byte, limit int) ([]*pb.KeyValue, error) {
+// scan returns at most limit pairs, and stops after the pair with which
+// the keys and values returned reach maxBytes. Zero means no bound.
+func (s *StateMachine) scan(start, end []byte, limit, maxBytes int) ([]*pb.KeyValue, error) {
 	hi := []byte{prefixKey + 1}
 	if len(end) > 0 {
 		hi = userKey(end)
 	}
 	it := s.db.Scan(userKey(start), hi)
 	var kvs []*pb.KeyValue
+	size := 0
 	for it.Next() {
 		if limit > 0 && len(kvs) >= limit {
 			break
 		}
 		kvs = append(kvs, &pb.KeyValue{Key: append([]byte(nil), it.Key()[1:]...), Value: append([]byte(nil), it.Value()...)})
+		if size += len(it.Key()) - 1 + len(it.Value()); maxBytes > 0 && size >= maxBytes {
+			break
+		}
 	}
 	return kvs, it.Close()
 }
@@ -294,8 +300,8 @@ func (s *StateMachine) Get(key []byte) ([]byte, bool, error) {
 
 var ErrMoving = errors.New("kv: shard is moving")
 
-func (s *StateMachine) Scan(start, end []byte, limit int) ([]*pb.KeyValue, error) {
-	return s.scan(start, end, limit)
+func (s *StateMachine) Scan(start, end []byte, limit, maxBytes int) ([]*pb.KeyValue, error) {
+	return s.scan(start, end, limit, maxBytes)
 }
 
 func (s *StateMachine) Snapshot() (io.ReadCloser, error) {

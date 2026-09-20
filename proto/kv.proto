@@ -67,6 +67,7 @@ message ScanOp {
   bytes start = 1;
   bytes end = 2;
   uint32 limit = 3;
+  uint32 max_bytes = 4;
 }
 
 message KeyValue {
@@ -156,6 +157,11 @@ message ScanRequest {
   ReadMode mode = 4;
   Session session = 5;
   uint64 group = 6;
+  // max_bytes ends the scan once the keys and values returned reach it; the
+  // pair that crosses it is still included, so a scan always advances. Zero
+  // means no bound. A caller paging through large values sets it to keep a
+  // page under what gRPC will carry.
+  uint32 max_bytes = 7;
 }
 
 message ScanResponse {

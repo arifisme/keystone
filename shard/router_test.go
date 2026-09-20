@@ -372,3 +372,37 @@ func TestMoveShardRelocatesKeysAndRoutingFollows(t *testing.T) {
 		t.Fatalf("scan after move: %d keys, %v", len(kvs), err)
 	}
 }
+
+// The shard holds more than one gRPC message may, so neither a page of the
+// source nor an import chunk can be cut by key count alone.
+func TestMoveShardHoldingMoreThanOneMessageCanCarry(t *testing.T) {
+	c := startSharded(t)
+	cl := c.dial(3, 6)
+	ctx := context.Background()
+	shard := 5
+	src := DefaultMap([]uint64{2, 3, 4}).Groups[shard]
+	dest := uint64(2)
+	if src == dest {
+		dest = 3
+	}
+	pairs := keysInShard(shard, 16, 300<<10)
+	for _, p := range pairs {
+		if err := cl.Put(ctx, p.Key, p.Value); err != nil {
+			t.Fatal(err)
+		}
+	}
+	err := cl.Do(ctx, func(ctx context.Context, cli pb.KVClient) error {
+		_, err := cli.MoveShard(ctx, &pb.MoveShardRequest{Shard: uint32(shard), Group: dest})
+		return err
+	})
+	if err != nil {
+		t.Fatalf("move: %v", err)
+	}
+	destClient := c.direct(dest)
+	for _, p := range pairs {
+		v, found, err := directGet(t, destClient, dest, string(p.Key))
+		if err != nil || !found || len(v) != len(p.Value) {
+			t.Fatalf("%s in destination: %d bytes, found %v, %v", p.Key, len(v), found, err)
+		}
+	}
+}

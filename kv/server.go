@@ -234,7 +234,7 @@ func (s *Server) Scan(ctx context.Context, req *pb.ScanRequest) (*pb.ScanRespons
 		return nil, err
 	}
 	if req.Mode == pb.ReadMode_LOG {
-		cmd := &pb.Command{Op: &pb.Command_Scan{Scan: &pb.ScanOp{Start: req.Start, End: req.End, Limit: req.Limit}}}
+		cmd := &pb.Command{Op: &pb.Command_Scan{Scan: &pb.ScanOp{Start: req.Start, End: req.End, Limit: req.Limit, MaxBytes: req.MaxBytes}}}
 		setSession(cmd, req.Session)
 		res, err := s.propose(ctx, g, cmd)
 		if err != nil {
@@ -245,7 +245,7 @@ func (s *Server) Scan(ctx context.Context, req *pb.ScanRequest) (*pb.ScanRespons
 	if err := s.readIndex(ctx, g); err != nil {
 		return nil, err
 	}
-	kvs, err := g.sm.Scan(req.Start, req.End, int(req.Limit))
+	kvs, err := g.sm.Scan(req.Start, req.End, int(req.Limit), int(req.MaxBytes))
 	if err != nil {
 		return nil, status.Error(codes.Internal, err.Error())
 	}

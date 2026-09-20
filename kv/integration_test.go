@@ -213,7 +213,7 @@ func TestNodeRejoinsThroughSnapshot(t *testing.T) {
 	if s := c.nodes[follower].Group(1).Status(); s.FirstIndex <= 1 {
 		t.Fatalf("follower caught up without a snapshot: %+v", s)
 	}
-	kvs, err := c.nodes[follower].Group(1).sm.Scan(nil, nil, 0)
+	kvs, err := c.nodes[follower].Group(1).sm.Scan(nil, nil, 0, 0)
 	if err != nil || len(kvs) != 150 {
 		t.Fatalf("follower has %d keys, %v", len(kvs), err)
 	}

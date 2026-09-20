@@ -233,7 +233,7 @@ func (s *Sim) settle() {
 				}
 				res.Found, res.Value = found, v
 			} else {
-				kvs, err := op.node.sm.inner.Scan(nil, nil, 0)
+				kvs, err := op.node.sm.inner.Scan(nil, nil, 0, 0)
 				if err != nil {
 					panic(err)
 				}

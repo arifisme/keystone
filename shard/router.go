@@ -410,19 +410,23 @@ func (r *Router) admin(ctx context.Context, c *kv.Client, group uint64, cmd *pb.
 }
 
 // copyShard pages through the source group and imports the shard's keys
-// in chunks; the last chunk opens the shard in the destination.
+// in chunks; the last chunk opens the shard in the destination. Pages and
+// chunks are bounded by kv.MaxRequestBytes as well as by count, which keeps
+// both under what gRPC will carry: no pair is larger than that, so a chunk
+// never is, and a page is over it by one pair at most.
 func (r *Router) copyShard(ctx context.Context, shard int, src *kv.Client, srcID uint64, dest *kv.Client, destID uint64) error {
 	var start []byte
 	var chunk []*pb.KeyValue
+	chunkBytes := 0
 	flush := func(last bool) error {
 		_, err := r.admin(ctx, dest, destID, &pb.Command{Op: &pb.Command_Import{Import: &pb.ImportOp{Shard: uint32(shard), Kvs: chunk, Last: last}}})
-		chunk = nil
+		chunk, chunkBytes = nil, 0
 		return err
 	}
 	for {
 		var page []*pb.KeyValue
 		err := src.Do(ctx, func(ctx context.Context, cli pb.KVClient) error {
-			res, err := cli.Scan(ctx, &pb.ScanRequest{Start: start, Limit: importChunk, Mode: pb.ReadMode_LOG, Group: srcID})
+			res, err := cli.Scan(ctx, &pb.ScanRequest{Start: start, Limit: importChunk, MaxBytes: kv.MaxRequestBytes, Mode: pb.ReadMode_LOG, Group: srcID})
 			if err != nil {
 				return err
 			}
@@ -432,18 +436,21 @@ func (r *Router) copyShard(ctx context.Context, shard int, src *kv.Client, srcID
 		if err != nil {
 			return err
 		}
-		for _, kv := range page {
-			if ShardOf(kv.Key) == shard {
-				chunk = append(chunk, kv)
+		if len(page) == 0 {
+			return flush(true)
+		}
+		for _, pair := range page {
+			if ShardOf(pair.Key) != shard {
+				continue
 			}
-			if len(chunk) >= importChunk {
+			size := len(pair.Key) + len(pair.Value)
+			if len(chunk) >= importChunk || (len(chunk) > 0 && chunkBytes+size > kv.MaxRequestBytes) {
 				if err := flush(false); err != nil {
 					return err
 				}
 			}
-		}
-		if len(page) < importChunk {
-			return flush(true)
+			chunk = append(chunk, pair)
+			chunkBytes += size
 		}
 		start = append(append([]byte(nil), page[len(page)-1].Key...), 0)
 	}

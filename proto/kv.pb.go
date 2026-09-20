@@ -674,6 +674,7 @@ type ScanOp struct {
 	Start         []byte                 `protobuf:"bytes,1,opt,name=start,proto3" json:"start,omitempty"`
 	End           []byte                 `protobuf:"bytes,2,opt,name=end,proto3" json:"end,omitempty"`
 	Limit         uint32                 `protobuf:"varint,3,opt,name=limit,proto3" json:"limit,omitempty"`
+	MaxBytes      uint32                 `protobuf:"varint,4,opt,name=max_bytes,json=maxBytes,proto3" json:"max_bytes,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -725,6 +726,13 @@ func (x *ScanOp) GetEnd() []byte {
 func (x *ScanOp) GetLimit() uint32 {
 	if x != nil {
 		return x.Limit
+	}
+	return 0
+}
+
+func (x *ScanOp) GetMaxBytes() uint32 {
+	if x != nil {
+		return x.MaxBytes
 	}
 	return 0
 }
@@ -1467,13 +1475,18 @@ func (x *CasResponse) GetCurrent() []byte {
 }
 
 type ScanRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Start         []byte                 `protobuf:"bytes,1,opt,name=start,proto3" json:"start,omitempty"`
-	End           []byte                 `protobuf:"bytes,2,opt,name=end,proto3" json:"end,omitempty"`
-	Limit         uint32                 `protobuf:"varint,3,opt,name=limit,proto3" json:"limit,omitempty"`
-	Mode          ReadMode               `protobuf:"varint,4,opt,name=mode,proto3,enum=keystone.ReadMode" json:"mode,omitempty"`
-	Session       *Session               `protobuf:"bytes,5,opt,name=session,proto3" json:"session,omitempty"`
-	Group         uint64                 `protobuf:"varint,6,opt,name=group,proto3" json:"group,omitempty"`
+	state   protoimpl.MessageState `protogen:"open.v1"`
+	Start   []byte                 `protobuf:"bytes,1,opt,name=start,proto3" json:"start,omitempty"`
+	End     []byte                 `protobuf:"bytes,2,opt,name=end,proto3" json:"end,omitempty"`
+	Limit   uint32                 `protobuf:"varint,3,opt,name=limit,proto3" json:"limit,omitempty"`
+	Mode    ReadMode               `protobuf:"varint,4,opt,name=mode,proto3,enum=keystone.ReadMode" json:"mode,omitempty"`
+	Session *Session               `protobuf:"bytes,5,opt,name=session,proto3" json:"session,omitempty"`
+	Group   uint64                 `protobuf:"varint,6,opt,name=group,proto3" json:"group,omitempty"`
+	// max_bytes ends the scan once the keys and values returned reach it; the
+	// pair that crosses it is still included, so a scan always advances. Zero
+	// means no bound. A caller paging through large values sets it to keep a
+	// page under what gRPC will carry.
+	MaxBytes      uint32 `protobuf:"varint,7,opt,name=max_bytes,json=maxBytes,proto3" json:"max_bytes,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1546,6 +1559,13 @@ func (x *ScanRequest) GetSession() *Session {
 func (x *ScanRequest) GetGroup() uint64 {
 	if x != nil {
 		return x.Group
+	}
+	return 0
+}
+
+func (x *ScanRequest) GetMaxBytes() uint32 {
+	if x != nil {
+		return x.MaxBytes
 	}
 	return 0
 }
@@ -1963,11 +1983,12 @@ const file_kv_proto_rawDesc = "" +
 	"\x05value\x18\x03 \x01(\fR\x05valueB\v\n" +
 	"\t_expected\"\x19\n" +
 	"\x05GetOp\x12\x10\n" +
-	"\x03key\x18\x01 \x01(\fR\x03key\"F\n" +
+	"\x03key\x18\x01 \x01(\fR\x03key\"c\n" +
 	"\x06ScanOp\x12\x14\n" +
 	"\x05start\x18\x01 \x01(\fR\x05start\x12\x10\n" +
 	"\x03end\x18\x02 \x01(\fR\x03end\x12\x14\n" +
-	"\x05limit\x18\x03 \x01(\rR\x05limit\"2\n" +
+	"\x05limit\x18\x03 \x01(\rR\x05limit\x12\x1b\n" +
+	"\tmax_bytes\x18\x04 \x01(\rR\bmaxBytes\"2\n" +
 	"\bKeyValue\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\fR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\fR\x05value\"\xa9\x01\n" +
@@ -2017,14 +2038,15 @@ const file_kv_proto_rawDesc = "" +
 	"\vCasResponse\x12\x18\n" +
 	"\asuccess\x18\x01 \x01(\bR\asuccess\x12\x14\n" +
 	"\x05found\x18\x02 \x01(\bR\x05found\x12\x18\n" +
-	"\acurrent\x18\x03 \x01(\fR\acurrent\"\xb6\x01\n" +
+	"\acurrent\x18\x03 \x01(\fR\acurrent\"\xd3\x01\n" +
 	"\vScanRequest\x12\x14\n" +
 	"\x05start\x18\x01 \x01(\fR\x05start\x12\x10\n" +
 	"\x03end\x18\x02 \x01(\fR\x03end\x12\x14\n" +
 	"\x05limit\x18\x03 \x01(\rR\x05limit\x12&\n" +
 	"\x04mode\x18\x04 \x01(\x0e2\x12.keystone.ReadModeR\x04mode\x12+\n" +
 	"\asession\x18\x05 \x01(\v2\x11.keystone.SessionR\asession\x12\x14\n" +
-	"\x05group\x18\x06 \x01(\x04R\x05group\"4\n" +
+	"\x05group\x18\x06 \x01(\x04R\x05group\x12\x1b\n" +
+	"\tmax_bytes\x18\a \x01(\rR\bmaxBytes\"4\n" +
 	"\fScanResponse\x12$\n" +
 	"\x03kvs\x18\x01 \x03(\v2\x12.keystone.KeyValueR\x03kvs\"I\n" +
 	"\tNotLeader\x12\x1b\n" +

@@ -160,7 +160,7 @@ func TestSnapshotCarriesDataAndSessions(t *testing.T) {
 	if dst.LastApplied() != 51 {
 		t.Fatalf("applied after restore = %d", dst.LastApplied())
 	}
-	kvs, _ := dst.Scan(nil, nil, 0)
+	kvs, _ := dst.Scan(nil, nil, 0, 0)
 	if len(kvs) != 50 || string(kvs[0].Key) != "key00" || string(kvs[49].Value) != "val49" {
 		t.Fatalf("restored %d keys, first %q", len(kvs), kvs[0].Key)
 	}
@@ -179,19 +179,46 @@ func TestScanStaysWithinUserKeys(t *testing.T) {
 	sm.Apply(entry(2, put(1, 1, "b", "2")))
 	sm.Apply(entry(3, put(1, 2, "a", "1")))
 	sm.Apply(entry(4, put(1, 3, "c", "3")))
-	kvs, err := sm.Scan(nil, nil, 0)
+	kvs, err := sm.Scan(nil, nil, 0, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(kvs) != 3 || string(kvs[0].Key) != "a" || string(kvs[2].Key) != "c" {
 		t.Fatalf("scan = %v", kvs)
 	}
-	kvs, _ = sm.Scan([]byte("b"), nil, 1)
+	kvs, _ = sm.Scan([]byte("b"), nil, 1, 0)
 	if len(kvs) != 1 || string(kvs[0].Key) != "b" {
 		t.Fatalf("bounded scan = %v", kvs)
 	}
-	kvs, _ = sm.Scan([]byte("a"), []byte("c"), 0)
+	kvs, _ = sm.Scan([]byte("a"), []byte("c"), 0, 0)
 	if len(kvs) != 2 || !bytes.Equal(kvs[1].Key, []byte("b")) {
 		t.Fatalf("ranged scan = %v", kvs)
+	}
+}
+
+func TestScanStopsWithThePairThatReachesTheByteBound(t *testing.T) {
+	sm := openSM(t, t.TempDir())
+	for i, k := range []string{"a", "b", "c", "d"} {
+		sm.Apply(entry(uint64(i+1), put(0, 0, k, "12345")))
+	}
+	// A pair is six bytes of key and value.
+	for _, tc := range []struct {
+		maxBytes, want int
+	}{
+		{0, 4},
+		{1, 1},
+		{6, 1},
+		{7, 2},
+		{12, 2},
+		{1000, 4},
+	} {
+		kvs, err := sm.Scan(nil, nil, 0, tc.maxBytes)
+		if err != nil || len(kvs) != tc.want {
+			t.Errorf("max %d bytes: %d pairs, %v, want %d", tc.maxBytes, len(kvs), err, tc.want)
+		}
+	}
+	res := result(t, sm.Apply(entry(5, &pb.Command{Op: &pb.Command_Scan{Scan: &pb.ScanOp{MaxBytes: 7}}})))
+	if len(res.Kvs) != 2 {
+		t.Fatalf("scan through the log with 7 bytes: %d pairs, want 2", len(res.Kvs))
 	}
 }
