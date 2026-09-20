@@ -89,3 +89,56 @@ func TestNodeReadIndexObservesPrecedingWrites(t *testing.T) {
 		}
 	}
 }
+
+// Node 3 is silent, so the round needs node 2, which is behind the
+// leader's compaction point and in the middle of a snapshot transfer.
+func TestReadIndexIsConfirmedByAFollowerThatIsReceivingASnapshot(t *testing.T) {
+	store := NewMemStore()
+	tr := &capture{}
+	r := newRaft(t, 1, []NodeID{1, 2, 3}, store, tr)
+	r.becomeCandidate()
+	r.Step(Message{Type: MsgVoteResp, From: 3, Term: 1})
+	if _, err := r.Propose([][]byte{[]byte("a"), []byte("b")}); err != nil {
+		t.Fatal(err)
+	}
+	r.Step(Message{Type: MsgAppResp, From: 3, Term: 1, Index: 3})
+	if r.commit != 3 {
+		t.Fatalf("commit = %d", r.commit)
+	}
+	if err := store.Compact(3, 1, []byte("snapshot")); err != nil {
+		t.Fatal(err)
+	}
+	r.Step(Message{Type: MsgAppResp, From: 2, Term: 1, Reject: true, ConflictIndex: 1})
+	if sent := tr.take(); sent[len(sent)-1].Type != MsgSnap {
+		t.Fatalf("test needs a snapshot transfer to node 2 under way, sent %+v", sent)
+	}
+
+	id, err := r.ReadIndex()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var probe Message
+	for _, m := range tr.take() {
+		if m.To == 2 {
+			probe = m
+		}
+	}
+	if probe.ReadID != id || len(probe.Data) != 0 {
+		t.Fatalf("to node 2: %+v, want a read probe without snapshot data", probe)
+	}
+
+	followerTr := &capture{}
+	follower := newRaft(t, 2, []NodeID{1, 2, 3}, NewMemStore(), followerTr)
+	follower.Step(probe)
+	for _, m := range followerTr.take() {
+		r.Step(m)
+	}
+	if ready := r.TakeReady(); len(ready) != 1 || ready[0].ID != id {
+		t.Fatalf("ready = %+v, want round %d confirmed by node 2", ready, id)
+	}
+	for _, m := range tr.take() {
+		if m.Type == MsgSnap {
+			t.Fatal("the answer to a read probe set off another snapshot chunk")
+		}
+	}
+}

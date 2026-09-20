@@ -255,6 +255,13 @@ must have committed an entry of its own term first or its commit index
 may be stale. A confirmed read index stays valid after losing leadership,
 since it names a point in the log that cannot change.
 
+The heartbeat of a read round is an append message, and a follower
+behind the leader's compaction point would get a snapshot chunk instead,
+whose reply carries no read id. Such a follower is sent an empty append
+at the compaction point for the round. It rejects it, and a rejection
+confirms the leader as well as an acceptance does, so a follower that is
+still catching up counts toward the majority a read needs.
+
 ### Snapshots
 
 When the applied log exceeds a threshold the node asks the state machine

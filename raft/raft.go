@@ -481,7 +481,14 @@ func (r *Raft) sendAppend(to NodeID, readID uint64) {
 	next := r.next[to]
 	first := r.store.FirstIndex()
 	if next < first {
-		r.sendSnapshot(to)
+		if readID == 0 {
+			r.sendSnapshot(to)
+			return
+		}
+		// A read round needs an answer, not another copy of the chunk the
+		// heartbeat already resends, and a snapshot reply carries no read
+		// id. Any reply to this probe confirms the leader, a rejection too.
+		r.send(Message{Type: MsgApp, To: to, Index: first - 1, LogTerm: r.termAt(first - 1), Commit: r.commit, ReadID: readID})
 		return
 	}
 	prevTerm := r.termAt(next - 1)
@@ -585,6 +592,12 @@ func (r *Raft) handleAppendResp(m Message) {
 	// follower still recognizes this leader.
 	if m.ReadID != 0 {
 		r.ackRead(m.ReadID, m.From)
+	}
+	if r.snapOut[m.From] != nil {
+		// A snapshot transfer paces itself. An append reply from its
+		// receiver answers a read probe, and acting on it would put a
+		// second copy of the current chunk in flight.
+		return
 	}
 	if m.Reject {
 		next := m.ConflictIndex
