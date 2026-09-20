@@ -41,10 +41,9 @@ type DiskStore struct {
 	term uint64
 	vote NodeID
 
-	// entries[i] has index base+1+i. base equals snapIdx once recovery has
-	// seen a snapshot record; before that it is one below the first
-	// replayed entry, which may sit above zero if older segments were
-	// already deleted.
+	// entries[i] has index base+1+i. base equals snapIdx once recovery is
+	// done; during replay it runs ahead of snapIdx when the oldest surviving
+	// entry sits above it because older segments were already deleted.
 	base     uint64
 	entries  []Entry
 	snapIdx  uint64
@@ -93,7 +92,10 @@ func (s *DiskStore) replay(seg uint64, p []byte) error {
 		}
 		last := s.lastLocked()
 		switch {
-		case len(s.entries) == 0 && s.base == s.snapIdx && s.snapIdx == 0 && e.Index > 1:
+		case len(s.entries) == 0 && e.Index > last+1:
+			// The entries in between sat in segments deleted under a later
+			// snapshot, whose record is still ahead. OpenDiskStore rejects
+			// the log if it never comes.
 			s.base = e.Index - 1
 		case e.Index <= last:
 			s.entries = s.entries[:e.Index-s.base-1]

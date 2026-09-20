@@ -127,6 +127,34 @@ func TestDiskStoreCompactBeyondLastReplacesLog(t *testing.T) {
 	}
 }
 
+func TestDiskStoreReopensAfterSecondCompactionDeletesTheFirstTail(t *testing.T) {
+	dir := t.TempDir()
+	s := openStore(t, dir)
+	if err := s.Append(entriesFor(1, 101, 1)); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Compact(80, 1, []byte("snap80")); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Append(entriesFor(101, 201, 1)); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Compact(180, 1, []byte("snap180")); err != nil {
+		t.Fatal(err)
+	}
+	s.Close()
+
+	s = openStore(t, dir)
+	defer s.Close()
+	if s.FirstIndex() != 181 || s.LastIndex() != 200 {
+		t.Fatalf("range after reopen = [%d,%d]", s.FirstIndex(), s.LastIndex())
+	}
+	idx, _, data, err := s.Snapshot()
+	if err != nil || idx != 180 || string(data) != "snap180" {
+		t.Fatalf("snapshot = %d/%q, %v", idx, data, err)
+	}
+}
+
 func TestDiskStoreDeletesSegmentsBelowSnapshot(t *testing.T) {
 	dir := t.TempDir()
 	s := openStore(t, dir)
