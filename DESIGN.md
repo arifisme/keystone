@@ -222,6 +222,12 @@ replica toward a majority only after its write is durable, and a batch
 that was lost or never made durable on the leader is repaired when the
 next heartbeat probes past it and the follower rejects.
 
+A batch is cut at 256 entries or 1 MiB of payload, whichever comes first.
+The byte cap is there for the transport: gRPC refuses a message over
+4 MiB, and a follower working through a backlog of large values would
+otherwise be sent the same undeliverable batch for ever. An entry larger
+than the cap travels alone.
+
 The commit rule is the one from Raft §5.4.2: the leader advances the
 commit index only to an entry of its own term, even if an older entry has
 been replicated to every node. An old-term entry on a majority can still

@@ -50,6 +50,10 @@ type Config struct {
 	HeartbeatTick int
 	// MaxBatch caps entries per AppendEntries message.
 	MaxBatch int
+	// MaxBatchBytes caps the entry payload per AppendEntries message. It
+	// must stay below the largest message the transport delivers, or a
+	// follower that is behind receives nothing but batches it cannot get.
+	MaxBatchBytes int
 	// SnapshotChunk is the payload size of one InstallSnapshot message.
 	SnapshotChunk int
 	Store         LogStore
@@ -67,6 +71,7 @@ type Raft struct {
 	electionTick  int
 	heartbeatTick int
 	maxBatch      int
+	maxBatchBytes int
 	snapChunk     int
 
 	term   uint64
@@ -120,6 +125,9 @@ func New(cfg Config) (*Raft, error) {
 	if cfg.MaxBatch <= 0 {
 		cfg.MaxBatch = 256
 	}
+	if cfg.MaxBatchBytes <= 0 {
+		cfg.MaxBatchBytes = 1 << 20
+	}
 	if cfg.SnapshotChunk <= 0 {
 		cfg.SnapshotChunk = 512 << 10
 	}
@@ -136,6 +144,7 @@ func New(cfg Config) (*Raft, error) {
 		electionTick:  cfg.ElectionTick,
 		heartbeatTick: cfg.HeartbeatTick,
 		maxBatch:      cfg.MaxBatch,
+		maxBatchBytes: cfg.MaxBatchBytes,
 		snapChunk:     cfg.SnapshotChunk,
 		term:          term,
 		vote:          vote,
@@ -288,9 +297,10 @@ func (r *Raft) appendEntries(entries []Entry) uint64 {
 		entries[i].Term = r.term
 	}
 	prevTerm := r.termAt(last)
+	oneBatch := len(r.fitBatch(entries)) == len(entries)
 	early := make(map[NodeID]bool, len(r.peers))
 	for _, p := range r.peers {
-		if p == r.id || r.next[p] != last+1 || len(entries) > r.maxBatch {
+		if p == r.id || r.next[p] != last+1 || !oneBatch {
 			continue
 		}
 		early[p] = true
@@ -486,7 +496,8 @@ func (r *Raft) sendAppend(to NodeID, readID uint64) {
 		if entries, err = r.store.Entries(next, hi); err != nil {
 			panic(fmt.Sprintf("raft: entries [%d,%d): %v", next, hi, err))
 		}
-		r.next[to] = hi
+		entries = r.fitBatch(entries)
+		r.next[to] = next + uint64(len(entries))
 	}
 	r.send(Message{
 		Type:    MsgApp,
@@ -497,6 +508,22 @@ func (r *Raft) sendAppend(to NodeID, readID uint64) {
 		Commit:  r.commit,
 		ReadID:  readID,
 	})
+}
+
+// fitBatch returns the prefix of entries one message may carry. The first
+// entry always goes, whatever its size, or it could never be replicated.
+func (r *Raft) fitBatch(entries []Entry) []Entry {
+	if len(entries) > r.maxBatch {
+		entries = entries[:r.maxBatch]
+	}
+	size := 0
+	for i, e := range entries {
+		size += len(e.Data)
+		if size > r.maxBatchBytes && i > 0 {
+			return entries[:i]
+		}
+	}
+	return entries
 }
 
 func (r *Raft) handleAppend(m Message) {

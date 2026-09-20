@@ -1,6 +1,7 @@
 package kv
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"math/rand"
@@ -213,6 +214,37 @@ func TestNodeRejoinsThroughSnapshot(t *testing.T) {
 	kvs, err := c.nodes[follower].Group(1).sm.Scan(nil, nil, 0)
 	if err != nil || len(kvs) != 150 {
 		t.Fatalf("follower has %d keys, %v", len(kvs), err)
+	}
+}
+
+// The backlog is larger than one gRPC message may be, so the leader has to
+// cut it by size and not only by entry count.
+func TestRestartedFollowerCatchesUpOnABacklogOfLargeValues(t *testing.T) {
+	c := startCluster(t, 3, 0)
+	l := c.waitLeader()
+	var follower raft.NodeID
+	for id := range c.nodes {
+		if id != l.Group(1).Status().ID {
+			follower = id
+			break
+		}
+	}
+	c.kill(follower)
+	cl := c.dial()
+	ctx := context.Background()
+	value := bytes.Repeat([]byte("x"), 32<<10)
+	for i := 0; i < 160; i++ {
+		if err := cl.Put(ctx, []byte(fmt.Sprintf("k%03d", i)), value); err != nil {
+			t.Fatal(err)
+		}
+	}
+	c.start(follower)
+	deadline := time.Now().Add(10 * time.Second)
+	for c.nodes[follower].Group(1).Status().Applied < c.waitLeader().Group(1).Status().Commit {
+		if time.Now().After(deadline) {
+			t.Fatalf("follower stuck: %+v", c.nodes[follower].Group(1).Status())
+		}
+		time.Sleep(10 * time.Millisecond)
 	}
 }
 

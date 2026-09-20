@@ -251,3 +251,41 @@ func TestLeaderPipelinesBatchesInsteadOfResendingThem(t *testing.T) {
 		t.Fatalf("repair sent %+v", sent)
 	}
 }
+
+func TestLeaderCutsABatchAtTheByteCapAndSendsAnOversizedEntryAlone(t *testing.T) {
+	tr := &capture{}
+	r, err := New(Config{ID: 1, Peers: []NodeID{1, 2, 3}, ElectionTick: 10, HeartbeatTick: 1, MaxBatchBytes: 10, Store: NewMemStore(), Transport: tr, Rand: rand.New(rand.NewSource(1))})
+	if err != nil {
+		t.Fatal(err)
+	}
+	r.becomeCandidate()
+	r.Step(Message{Type: MsgVoteResp, From: 2, Term: 1})
+	tr.take()
+
+	// Indexes 2 and 3 fit the cap together, 4 is larger than the cap on
+	// its own, 5 is small again.
+	if _, err := r.Propose([][]byte{[]byte("aaaa"), []byte("bbbb"), []byte("cccccccccccccccc"), []byte("dd")}); err != nil {
+		t.Fatal(err)
+	}
+	toNode2 := func() Message {
+		t.Helper()
+		for _, m := range tr.take() {
+			if m.To == 2 {
+				return m
+			}
+		}
+		t.Fatal("nothing sent to node 2")
+		return Message{}
+	}
+	if m := toNode2(); len(m.Entries) != 2 || m.Entries[1].Index != 3 {
+		t.Fatalf("first batch = %+v, want entries 2 and 3", m.Entries)
+	}
+	r.Step(Message{Type: MsgAppResp, From: 2, Term: 1, Index: 3})
+	if m := toNode2(); len(m.Entries) != 1 || m.Entries[0].Index != 4 {
+		t.Fatalf("second batch = %+v, want the oversized entry 4 alone", m.Entries)
+	}
+	r.Step(Message{Type: MsgAppResp, From: 2, Term: 1, Index: 4})
+	if m := toNode2(); len(m.Entries) != 1 || m.Entries[0].Index != 5 {
+		t.Fatalf("third batch = %+v, want entry 5", m.Entries)
+	}
+}
