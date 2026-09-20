@@ -287,6 +287,13 @@ library allocates a sequence number once per operation and reuses it on
 every retry, so a write whose reply was lost is applied exactly once.
 Sessions never expire; that is listed under limitations.
 
+A request may hold 1 MiB of keys and values, and a larger one is refused
+with `InvalidArgument` before it reaches the log. Without a limit the
+only bound is gRPC's 4 MiB per message, and that one is measured at the
+wrong place: a request a few bytes under it is accepted, grows by its
+Raft headers, and becomes an entry the leader holds but can send to
+nobody. etcd draws the same line at 1.5 MiB for the same reason.
+
 Everything lives in one engine under a one-byte prefix: user keys under
 `k`, sessions under `s`, and the applied index under `m`. The applied
 index is written in every batch, which is what lets a restart resume from

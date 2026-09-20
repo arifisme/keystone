@@ -9,7 +9,9 @@ import (
 	"time"
 
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/status"
 
 	"github.com/arifisme/keystone/proto"
 	"github.com/arifisme/keystone/raft"
@@ -274,5 +276,51 @@ func TestRetriedWriteIsAppliedOnce(t *testing.T) {
 	get, err := raw.Get(ctx, &pb.GetRequest{Key: []byte("k")})
 	if err != nil || string(get.Value) != "first" {
 		t.Fatalf("k = %q, %v", get.Value, err)
+	}
+}
+
+func TestRequestSizeLimit(t *testing.T) {
+	c := startCluster(t, 3, 0)
+	l := c.waitLeader()
+	cl := c.dial()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	term := l.Group(1).Status().Term
+
+	// With the one-byte key these values put a request exactly at the limit.
+	atLimit := bytes.Repeat([]byte("x"), MaxRequestBytes-1)
+	if err := cl.Put(ctx, []byte("k"), atLimit); err != nil {
+		t.Fatalf("put at the limit: %v", err)
+	}
+	for _, tc := range []struct {
+		name string
+		op   func() error
+	}{
+		{"put", func() error { return cl.Put(ctx, []byte("k"), append(atLimit, 'x')) }},
+		{"cas counts the expected value", func() error {
+			_, _, _, err := cl.Cas(ctx, []byte("k"), atLimit, []byte("y"))
+			return err
+		}},
+		{"delete", func() error { return cl.Delete(ctx, append(atLimit, "xx"...)) }},
+		{"get", func() error {
+			_, _, err := cl.Get(ctx, append(atLimit, "xx"...), pb.ReadMode_LOG)
+			return err
+		}},
+		{"scan", func() error {
+			_, err := cl.Scan(ctx, atLimit, []byte("zz"), 0, pb.ReadMode_LOG)
+			return err
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if err := tc.op(); status.Code(err) != codes.InvalidArgument {
+				t.Fatalf("err = %v, want InvalidArgument", err)
+			}
+		})
+	}
+	if v, found, err := cl.Get(ctx, []byte("k"), pb.ReadMode_READ_INDEX); err != nil || !found || len(v) != len(atLimit) {
+		t.Fatalf("value at the limit: %d bytes, found %v, %v", len(v), found, err)
+	}
+	if got := c.waitLeader().Group(1).Status().Term; got != term {
+		t.Fatalf("term went from %d to %d: a request the server accepted upset replication", term, got)
 	}
 }

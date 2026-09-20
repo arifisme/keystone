@@ -59,6 +59,24 @@ func (s *Server) propose(ctx context.Context, g *Group, cmd *pb.Command) (*pb.Re
 	return &res, nil
 }
 
+// MaxRequestBytes bounds the keys and values of one request. The same bytes
+// travel again inside a command, a log entry and a raft message, each with
+// a little more around them, and gRPC refuses a message over 4 MiB: a
+// request accepted just under that becomes an entry no follower can be
+// sent. The limit leaves that margin many times over.
+const MaxRequestBytes = 1 << 20
+
+func checkSize(parts ...[]byte) error {
+	size := 0
+	for _, p := range parts {
+		size += len(p)
+	}
+	if size > MaxRequestBytes {
+		return status.Errorf(codes.InvalidArgument, "request holds %d bytes of keys and values, the limit is %d", size, MaxRequestBytes)
+	}
+	return nil
+}
+
 // errMoving tells a router its shard map is stale. Aborted is not retried
 // by the client library, so the router gets to reload the map first.
 var errMoving = status.Error(codes.Aborted, "shard is moving")
@@ -106,6 +124,9 @@ func (s *Server) Put(ctx context.Context, req *pb.PutRequest) (*pb.PutResponse, 
 	if len(req.Key) == 0 {
 		return nil, status.Error(codes.InvalidArgument, "empty key")
 	}
+	if err := checkSize(req.Key, req.Value); err != nil {
+		return nil, err
+	}
 	cmd := &pb.Command{Op: &pb.Command_Put{Put: &pb.PutOp{Key: req.Key, Value: req.Value}}}
 	setSession(cmd, req.Session)
 	if _, err := s.propose(ctx, g, cmd); err != nil {
@@ -121,6 +142,9 @@ func (s *Server) Delete(ctx context.Context, req *pb.DeleteRequest) (*pb.DeleteR
 	}
 	if len(req.Key) == 0 {
 		return nil, status.Error(codes.InvalidArgument, "empty key")
+	}
+	if err := checkSize(req.Key); err != nil {
+		return nil, err
 	}
 	cmd := &pb.Command{Op: &pb.Command_Delete{Delete: &pb.DeleteOp{Key: req.Key}}}
 	setSession(cmd, req.Session)
@@ -138,6 +162,9 @@ func (s *Server) Cas(ctx context.Context, req *pb.CasRequest) (*pb.CasResponse, 
 	if len(req.Key) == 0 {
 		return nil, status.Error(codes.InvalidArgument, "empty key")
 	}
+	if err := checkSize(req.Key, req.Expected, req.Value); err != nil {
+		return nil, err
+	}
 	cmd := &pb.Command{Op: &pb.Command_Cas{Cas: &pb.CasOp{Key: req.Key, Expected: req.Expected, Value: req.Value}}}
 	setSession(cmd, req.Session)
 	res, err := s.propose(ctx, g, cmd)
@@ -154,6 +181,9 @@ func (s *Server) Get(ctx context.Context, req *pb.GetRequest) (*pb.GetResponse, 
 	}
 	if len(req.Key) == 0 {
 		return nil, status.Error(codes.InvalidArgument, "empty key")
+	}
+	if err := checkSize(req.Key); err != nil {
+		return nil, err
 	}
 	if req.Mode == pb.ReadMode_LOG {
 		cmd := &pb.Command{Op: &pb.Command_Get{Get: &pb.GetOp{Key: req.Key}}}
@@ -198,6 +228,9 @@ func (s *Server) Admin(ctx context.Context, req *pb.AdminRequest) (*pb.AdminResp
 func (s *Server) Scan(ctx context.Context, req *pb.ScanRequest) (*pb.ScanResponse, error) {
 	g, err := s.group(req.Group)
 	if err != nil {
+		return nil, err
+	}
+	if err := checkSize(req.Start, req.End); err != nil {
 		return nil, err
 	}
 	if req.Mode == pb.ReadMode_LOG {

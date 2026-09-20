@@ -280,6 +280,9 @@ whose reply was lost is applied exactly once.
 - No dynamic membership. Group membership is fixed at startup; the
   simplified shard move relocates data between existing groups and stalls
   writes to that shard while it runs.
+- The keys and values of one request may hold 1 MiB at most. The bytes of
+  a request travel again inside a log entry and a Raft message, and gRPC
+  refuses a message over 4 MiB, so the limit sits well below that.
 - Sessions never expire, and they do not travel with a moved shard, so a
   retry that crosses a move can apply twice.
 - No pre-vote and no check-quorum. A node that was partitioned away
