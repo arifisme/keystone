@@ -69,6 +69,14 @@ func (d *db) compactLoop() {
 func (d *db) compact(inputs []*table) error {
 	d.installMu.Lock()
 	defer d.installMu.Unlock()
+	// inputs were picked before the wait for installMu. Only a Restore
+	// removes tables other than this goroutine, and it removes them all.
+	d.mu.RLock()
+	stale := !isInput(inputs[0], d.current.tables)
+	d.mu.RUnlock()
+	if stale {
+		return nil
+	}
 	return d.compactLocked(inputs)
 }
 

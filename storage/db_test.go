@@ -489,6 +489,75 @@ func TestDBExportOfEmptyDatabaseRestoresEmpty(t *testing.T) {
 	checkOracle(t, dst, map[string][]byte{})
 }
 
+// The flush and compaction goroutines pick their work before they wait for
+// installMu. The test plays a goroutine that picked before Restore and got
+// the lock after it.
+func TestDBRestoreDiscardsBackgroundWorkPickedBeforeIt(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		oracle map[string][]byte
+	}{
+		{"snapshot with a key", map[string][]byte{"restored": []byte("yes")}},
+		{"empty snapshot", map[string][]byte{}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			src, err := Open(t.TempDir(), Options{})
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer src.Close()
+			for k, v := range tc.oracle {
+				src.Put([]byte(k), v)
+			}
+			var snapshot bytes.Buffer
+			if err := src.Export(&snapshot); err != nil {
+				t.Fatal(err)
+			}
+
+			dir := t.TempDir()
+			opts := Options{MemtableSize: 4 << 10, BlockSize: 256}
+			d, err := Open(dir, opts)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for i := 0; i < 100; i++ {
+				d.Put([]byte(fmt.Sprintf("old%03d", i)), bytes.Repeat([]byte("x"), 100))
+			}
+			waitIdle(t, d)
+			d.Put([]byte("old-unflushed"), []byte("x"))
+			db := d.(*db)
+			db.mu.RLock()
+			pickedMem := db.current.mem
+			pickedTables := append([]*table(nil), db.current.tables...)
+			db.mu.RUnlock()
+			if len(pickedTables) == 0 {
+				t.Fatal("test needs at least one table")
+			}
+
+			if err := d.Restore(&snapshot); err != nil {
+				t.Fatal(err)
+			}
+			if err := db.flush(pickedMem); err != nil {
+				t.Fatalf("flush picked before restore: %v", err)
+			}
+			checkOracle(t, d, tc.oracle)
+			if err := db.compact(pickedTables); err != nil {
+				t.Fatalf("compaction picked before restore: %v", err)
+			}
+			checkOracle(t, d, tc.oracle)
+			if err := d.Close(); err != nil {
+				t.Fatal(err)
+			}
+			d, err = Open(dir, opts)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer d.Close()
+			checkOracle(t, d, tc.oracle)
+		})
+	}
+}
+
 func TestMemoryDBMatchesOracleAndSnapshotsInterchangeWithDisk(t *testing.T) {
 	rng := rand.New(rand.NewSource(9))
 	m := NewMemory(9)

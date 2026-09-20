@@ -486,6 +486,15 @@ func (d *db) flush(m *memtable) error {
 	d.installMu.Lock()
 	defer d.installMu.Unlock()
 
+	// m was picked before the wait for installMu; a Restore that got in
+	// first has discarded it, and flushing it would bring its keys back.
+	d.mu.RLock()
+	stale := len(d.current.imm) == 0 || d.current.imm[0] != m
+	d.mu.RUnlock()
+	if stale {
+		return nil
+	}
+
 	t, err := d.writeTable(m.iter())
 	if err != nil {
 		return fmt.Errorf("flush: %w", err)
